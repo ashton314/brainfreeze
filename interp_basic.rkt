@@ -33,22 +33,26 @@
             (find-matching prog start (+ bump offset) kind stack)))))
 
 (define (interp program state [ip 0] [sp 0])
-  (match (vector-ref program ip)
-    [#\+ (begin
-           (vector-set! state sp (+ (vector-ref state sp) 1))
-           (interp program state (+ 1 ip) sp))]
-    [#\- (begin (vector-set! state sp (- (vector-ref state sp) 1)) (interp program state (+ 1 ip) sp))]
-    [#\> (interp program state (+ 1 ip) (+ sp 1))]
-    [#\< (interp program state (+ 1 ip) (- sp 1))]
-    [#\. (begin
-           (display (integer->char (vector-ref state sp)))
-           (interp program state (+ 1 ip) sp))]
-    [(jmp-forward amount) (if (zero? (vector-ref state sp))
-                              (interp program state (+ amount ip) sp)
-                              (interp program state (+ 1 ip) sp))]
+  (when (< ip (vector-length program))
+    (match (vector-ref program ip)
+      [#\+ (begin
+             (vector-set! state sp (+ (vector-ref state sp) 1))
+             (interp program state (+ 1 ip) sp))]
+      [#\- (begin (vector-set! state sp (- (vector-ref state sp) 1)) (interp program state (+ 1 ip) sp))]
+      [#\> (interp program state (+ 1 ip) (+ sp 1))]
+      [#\< (interp program state (+ 1 ip) (- sp 1))]
+      [#\. (begin
+             (display (integer->char (vector-ref state sp)))
+             (interp program state (+ 1 ip) sp))]
+      [(jmp-forward amount) (if (zero? (vector-ref state sp))
+                                (interp program state (+ amount ip) sp)
+                                (interp program state (+ 1 ip) sp))]
 
-    [(jmp-backward amount) (if (zero? (vector-ref state sp))
-                               (interp program state (+ 1 ip) sp)
-                               (interp program state (+ amount ip) sp))]))
+      [(jmp-backward amount) (if (zero? (vector-ref state sp))
+                                 (interp program state (+ 1 ip) sp)
+                                 (interp program state (+ amount ip) sp))])))
 
-
+(let* ([the-file (command-line #:program "interp_basic" #:args (filename) filename)]
+       [program (parse-file the-file)])
+  (preprocess-loops! program)
+  (interp program (make-vector 10000)))
