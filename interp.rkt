@@ -33,7 +33,6 @@
             (find-matching prog start (+ bump offset) kind stack)))))
 
 (define (interp program state [ip 0] [sp 0])
-  ;; (printf "p: ~a st: ~a\n" program state)
   (match (vector-ref program ip)
     [#\+ (begin
            (vector-set! state sp (+ (vector-ref state sp) 1))
@@ -52,6 +51,4 @@
                                (interp program state (+ 1 ip) sp)
                                (interp program state (+ amount ip) sp))]))
 
-;; (define the-prog (parse-file "hello.bf"))
-;; (preprocess-loops! the-prog)
 
