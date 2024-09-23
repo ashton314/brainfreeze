@@ -8,6 +8,8 @@
 (struct jmp (amount) #:transparent)
 (struct jmp-forward jmp () #:transparent)
 (struct jmp-backward jmp () #:transparent)
+(struct add (amount) #:transparent)
+(struct shift (amount) #:transparent)
 
 (define (preprocess-loops! prog)
   (for ([i (in-range (vector-length prog))])
@@ -15,6 +17,31 @@
       [#\[ (vector-set! prog i (find-matching prog i 1 'close))]
       [#\] (vector-set! prog i (find-matching prog i -1 'open))]
       [_ 42])))
+
+(define (combine-instrs prog)
+  (let ([new-prog '()])
+    (for ([i prog])
+      (cond
+        [(null? new-prog)
+         (set! new-prog (cons i '()))]
+        [(and (add? (car new-prog)) (eqv? i #\+))
+         (set! new-prog (cons (add (+ (add-amount (car new-prog)) 1)) (cdr new-prog)))]
+        [(and (add? (car new-prog)) (eqv? i #\-))
+         (set! new-prog (cons (add (- (add-amount (car new-prog)) 1)) (cdr new-prog)))]
+        [(and (shift? (car new-prog)) (eqv? i #\>))
+         (set! new-prog (cons (shift (+ (shift-amount (car new-prog)) 1)) (cdr new-prog)))]
+        [(and (shift? (car new-prog)) (eqv? i #\<))
+         (set! new-prog (cons (shift (- (shift-amount (car new-prog)) 1)) (cdr new-prog)))]
+        [(eqv? i #\+)
+         (set! new-prog (cons (add 1) new-prog))]
+        [(eqv? i #\-)
+         (set! new-prog (cons (add -1) new-prog))]
+        [(eqv? i #\>)
+         (set! new-prog (cons (shift 1) new-prog))]
+        [(eqv? i #\<)
+         (set! new-prog (cons (shift -1) new-prog))]
+        [else (set! new-prog (cons i new-prog))]))
+    (list->vector (reverse new-prog))))
 
 (define (find-matching prog start offset kind [stack 0])
   (define (close? x) (or (jmp-backward? x) (eqv? x #\])))
@@ -39,26 +66,41 @@
      (let ([compiled
             (if (< c-ip (vector-length program))
                 (match (vector-ref program c-ip)
+                  [(add amount) (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
+                                  (λ (state sp)
+                                    (println "add")
+                                    (vector-set! state sp (+ (vector-ref state sp) amount))
+                                    (rest-progn state sp)))]
+                  [(shift amount) (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
+                                    (λ (state sp)
+                                      (println "shift")
+                                      (rest-progn state (+ sp amount))))]
                   [#\+ (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
                          (λ (state sp)
+                           (println "+")
                            (vector-set! state sp (+ (vector-ref state sp) 1))
                            (rest-progn state sp)))]
                   [#\- (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
                          (λ (state sp)
+                           (println "-")
                            (vector-set! state sp (- (vector-ref state sp) 1))
                            (rest-progn state sp)))]
                   [#\> (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
                          (λ (state sp)
+                           (println ">")
                            (rest-progn state (+ sp 1))))]
                   [#\< (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
                          (λ (state sp)
+                           (println "<")
                            (rest-progn state (- sp 1))))]
                   [#\. (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
                          (λ (state sp)
+                           (println ".")
                            (display (integer->char (vector-ref state sp)))
                            (rest-progn state sp)))]
                   [(jmp-forward target)
                    (letrec ([loop-start (λ (state sp)
+                                          (println "[")
                                           (if (zero? (vector-ref state sp))
                                               (loop-end state sp)
                                               (loop-body state sp)))]
@@ -68,6 +110,7 @@
                      loop-start)]
                   [(jmp-backward _)
                    (λ (state sp)
+                     (println "]")
                      (if (zero? (vector-ref state sp))
                          ((cdr jmp-targets) state sp)
                          ((car jmp-targets) state sp)))])
@@ -76,7 +119,13 @@
        (hash-set! inst-cache c-ip compiled)
        compiled))))
 
-(let* ([the-file (command-line #:program "interp_threaded" #:args (filename) filename)]
+(define (run-file filename)
+  (let ([program (parse-file filename)])
+    (preprocess-loops! program)
+    ((compile (combine-instrs program) 0 null (make-hash)) (make-vector 10000) 5000)))
+
+#;
+(let* ([the-file (command-line #:program "interp_threaded_opt" #:args (filename) filename)]
        [program (parse-file the-file)])
   (preprocess-loops! program)
-  ((compile program 0 null (make-hash)) (make-vector 10000) 5000))
+  ((compile (combine-instrs program) 0 null (make-hash)) (make-vector 10000) 5000))
