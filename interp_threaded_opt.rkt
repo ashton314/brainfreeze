@@ -74,6 +74,7 @@
   (match prog
     [(loop (list (add -1))) (set-cell 0)]
     [(loop body) (loop (map opt/zero-out body))]
+    [(list is ...) (map opt/zero-out is)]
     [_ prog]))
 
 (define/match (compile program)
@@ -85,6 +86,10 @@
         (λ (sp st)
           ;; (printf "+~a" amount)
           (vector-set! st sp (+ amount (vector-ref st sp)))
+          (rest-progn sp st))]
+       [(set-cell value)
+        (λ (sp st)
+          (vector-set! st sp value)
           (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
@@ -118,15 +123,14 @@
         (compiled start (make-vector size))
         (displayln "Finished.")))))
 
-#;
 (let* ([the-file (command-line #:program "interp_threaded_opt" #:args (filename) filename)])
   (run-file the-file))
 
-(define p1 (parse-file "bench/benches/hello.b"))
-(define-values (pp1 _blah) (parse-prog p1))
-(define o1 (optimize pp1))
+;; (define p1 (parse-file "bench/benches/hello.b"))
+;; (define-values (pp1 _blah) (parse-prog p1))
+;; (define o1 (optimize pp1))
 
-(define p2 (parse-file "bench/benches/mandel.b"))
-(define-values (pp2 _blah2) (parse-prog p2))
-(define o2 (optimize pp2))
+;; (define p2 (parse-file "bench/benches/mandel.b"))
+;; (define-values (pp2 _blah2) (parse-prog p2))
+;; (define o2 (optimize pp2))
 
