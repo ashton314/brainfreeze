@@ -52,18 +52,18 @@
     (reverse new-prog)))
 
 (define/match (compile program)
-  [('()) (λ (sp st) 'finished)]
+  [('()) (λ (sp st) (values sp st))]
   [((cons instr instr-rst))
    (let ([rest-progn (compile instr-rst)])
      (match instr
        [(add amount)
         (λ (sp st)
-          (printf "+~a" amount)
+          ;; (printf "+~a" amount)
           (vector-set! st sp (+ amount (vector-ref st sp)))
           (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
-          (printf ">~a" amount)
+          ;; (printf ">~a" amount)
           (rest-progn (+ sp amount) st))]
        [(bf-write)
         (λ (sp st)
@@ -77,18 +77,18 @@
         (let ([body-progn (compile body)])
           (letrec ([the-loop (λ (sp st)
                                ;; Help! Can I make this more efficient?
-                               (body-progn sp st)
                                (if (zero? (vector-ref st sp))
                                    (rest-progn sp st)
-                                   (the-loop sp st)))])
+                                   (let-values ([(new-sp new-st) (body-progn sp st)])
+                                     (the-loop new-sp new-st))))])
             the-loop))]))])
 
 (define (run-file filename)
   (displayln "Parsing...")
   (let-values ([(program _) (parse-prog (parse-file filename))])
     (displayln "Parsed. Executing...")
-    ((compile (combine-instrs program)) 5000 (make-vector 10000))))
+    ((compile (combine-instrs program)) 5000 (make-vector 10000))
+    (displayln "Finished.")))
 
-#;
 (let* ([the-file (command-line #:program "interp_threaded_opt" #:args (filename) filename)])
   (run-file the-file))
