@@ -7,8 +7,19 @@
 (struct loop (body) #:transparent)
 (struct add (amount) #:transparent)
 (struct shift (amount) #:transparent)
+(struct set-cell (value) #:transparent)
 (struct bf-write () #:transparent)
 (struct bf-read () #:transparent)
+
+(define (tree-size thingy)
+  (match thingy
+    [(list is ...) (apply + (map tree-size is))]
+    [(loop body) (tree-size body)]
+    [(add _) 1]
+    [(shift _) 1]
+    [(set-cell _) 1]
+    [(bf-write) 1]
+    [(bf-read) 1]))
 
 (define (parse-prog char-list)
   (match char-list
@@ -38,18 +49,32 @@
      (values '() rst)]
     ['() (values '() '())]))
 
+(define (optimize prog)
+  (opt/zero-out (combine-instrs prog)))
+
 (define (combine-instrs prog)
-  (let ([new-prog (list (car prog))])
-    (for ([i (cdr prog)])
-      (match (cons i (car new-prog))
-        [(cons (add a1) (add a2))
-         (set! new-prog (cons (add (+ a1 a2)) (cdr new-prog)))]
-        [(cons (shift s1) (shift s2))
-         (set! new-prog (cons (shift (+ s1 s2)) (cdr new-prog)))]
-        [(cons (loop body) _)
-         (set! new-prog (cons (loop (combine-instrs body)) new-prog))]
-        [_ (set! new-prog (cons i new-prog))]))
-    (reverse new-prog)))
+  (cond
+    [(list? prog)
+     (let ([new-prog (list (combine-instrs (car prog)))])
+       (for ([i (cdr prog)])
+         (match (cons i (car new-prog))
+           [(cons (add a1) (add a2))
+            (set! new-prog (cons (add (+ a1 a2)) (cdr new-prog)))]
+           [(cons (shift s1) (shift s2))
+            (set! new-prog (cons (shift (+ s1 s2)) (cdr new-prog)))]
+           [(cons (loop body) _)
+            (set! new-prog (cons (loop (combine-instrs body)) new-prog))]
+           [_
+            (set! new-prog (cons i new-prog))]))
+       (reverse new-prog))]
+    [(loop? prog) (loop (combine-instrs (loop-body prog)))]
+    [else prog]))
+
+(define (opt/zero-out prog)
+  (match prog
+    [(loop (list (add -1))) (set-cell 0)]
+    [(loop body) (loop (map opt/zero-out body))]
+    [_ prog]))
 
 (define/match (compile program)
   [('()) (λ (sp st) (values sp st))]
@@ -83,12 +108,25 @@
                                      (the-loop new-sp new-st))))])
             the-loop))]))])
 
-(define (run-file filename)
+(define (run-file filename [start 5000] [size 10000])
   (displayln "Parsing...")
   (let-values ([(program _) (parse-prog (parse-file filename))])
-    (displayln "Parsed. Executing...")
-    ((compile (combine-instrs program)) 5000 (make-vector 10000))
-    (displayln "Finished.")))
+    (printf "Parsed. Program is ~a instructions. Optimizing...\n" (tree-size program))
+    (let ([optimized (optimize program)])
+      (printf "Optimized. New program is ~a instructions.\n" (tree-size optimized))
+      (let ([compiled (compile optimized)])
+        (compiled start (make-vector size))
+        (displayln "Finished.")))))
 
+#;
 (let* ([the-file (command-line #:program "interp_threaded_opt" #:args (filename) filename)])
   (run-file the-file))
+
+(define p1 (parse-file "bench/benches/hello.b"))
+(define-values (pp1 _blah) (parse-prog p1))
+(define o1 (optimize pp1))
+
+(define p2 (parse-file "bench/benches/mandel.b"))
+(define-values (pp2 _blah2) (parse-prog p2))
+(define o2 (optimize pp2))
+
