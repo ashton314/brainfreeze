@@ -1,5 +1,7 @@
 #lang racket
 
+(require syntax/parse/define)
+
 (define (parse-file filename)
   (filter (λ (c) (member c '(#\> #\< #\+ #\- #\. #\, #\[ #\])))
           (string->list (file->string filename))))
@@ -14,7 +16,7 @@
 (define (tree-size thingy)
   (match thingy
     [(list is ...) (apply + (map tree-size is))]
-    [(loop body) (tree-size body)]
+    [(loop body) (+ 1 (tree-size body))]
     [(add _) 1]
     [(shift _) 1]
     [(set-cell _) 1]
@@ -49,8 +51,22 @@
      (values '() rst)]
     ['() (values '() '())]))
 
+(define-syntax (opt-pass stx)
+  (syntax-parse stx
+    [(_ opt-name prog-input)
+     #:with opt-name-stx (datum->syntax #'opt-name (format "~a" (syntax->datum #'opt-name)))
+     #'(let* ([input prog-input]
+              [input-size (tree-size input)])
+         (printf "~a opts (~a)> " input-size opt-name-stx)
+         (let* ([output (opt-name input)]
+                [output-size (tree-size output)])
+           (printf "~a opts\n" output-size)
+           output))]))
+
 (define (optimize prog)
-  (opt/zero-out (combine-instrs prog)))
+  (opt-pass opt/zero-add->set
+            (opt-pass opt/zero-out
+                      (opt-pass combine-instrs prog))))
 
 (define (combine-instrs prog)
   (cond
@@ -76,6 +92,15 @@
     [(loop body) (loop (map opt/zero-out body))]
     [(list is ...) (map opt/zero-out is)]
     [_ prog]))
+
+(define (opt/zero-add->set prog)
+  (match prog
+    [(loop body) (loop (opt/zero-add->set body))]
+    [(list (set-cell n) (add m) rst ...)
+     (cons (set-cell (+ n m)) (opt/zero-add->set rst))]
+    [(list hd rst ...)
+     (cons hd (opt/zero-add->set rst))]
+    ['() prog]))
 
 (define/match (compile program)
   [('()) (λ (sp st) (values sp st))]
@@ -122,6 +147,7 @@
       (let ([compiled (compile optimized)])
         (compiled start (make-vector size))
         (displayln "Finished.")))))
+
 
 (let* ([the-file (command-line #:program "interp_threaded_opt" #:args (filename) filename)])
   (run-file the-file))
