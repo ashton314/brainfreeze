@@ -2,6 +2,8 @@
 
 (require syntax/parse/define)
 
+(provide (all-defined-out))
+
 (define (parse-file filename)
   (filter (λ (c) (member c '(#\> #\< #\+ #\- #\. #\, #\[ #\])))
           (string->list (file->string filename))))
@@ -57,10 +59,10 @@
      #:with opt-name-stx (datum->syntax #'opt-name (format "~a" (syntax->datum #'opt-name)))
      #'(let* ([input prog-input]
               [input-size (tree-size input)])
-         (printf "~a opts (~a)> " input-size opt-name-stx)
+         (eprintf "~a opts (~a)> " input-size opt-name-stx)
          (let* ([output (opt-name input)]
                 [output-size (tree-size output)])
-           (printf "~a opts\n" output-size)
+           (eprintf "~a opts\n" output-size)
            output))]))
 
 (define (optimize prog)
@@ -109,7 +111,6 @@
      (match instr
        [(add amount)
         (λ (sp st)
-          ;; (printf "+~a" amount)
           (vector-set! st sp (+ amount (vector-ref st sp)))
           (rest-progn sp st))]
        [(set-cell value)
@@ -118,7 +119,6 @@
           (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
-          ;; (printf ">~a" amount)
           (rest-progn (+ sp amount) st))]
        [(bf-write)
         (λ (sp st)
@@ -138,19 +138,6 @@
                                      (the-loop new-sp new-st))))])
             the-loop))]))])
 
-(define (run-file filename [start 5000] [size 10000])
-  (displayln "Parsing...")
-  (let-values ([(program _) (parse-prog (parse-file filename))])
-    (printf "Parsed. Program is ~a instructions. Optimizing...\n" (tree-size program))
-    (let ([optimized (optimize program)])
-      (printf "Optimized. New program is ~a instructions.\n" (tree-size optimized))
-      (let ([compiled (compile optimized)])
-        (compiled start (make-vector size))
-        (displayln "Finished.")))))
-
-
-(let* ([the-file (command-line #:program "interp_threaded_opt" #:args (filename) filename)])
-  (run-file the-file))
 
 ;; (define p1 (parse-file "bench/benches/hello.b"))
 ;; (define-values (pp1 _blah) (parse-prog p1))
