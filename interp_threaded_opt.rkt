@@ -126,7 +126,7 @@
           (rest-progn sp st))]
        [(bf-read)
         (λ (sp st)
-          (error "unimplemented")
+          (vector-set! st sp (char->integer (read-char)))
           (rest-progn sp st))]
        [(loop body)
         (let ([body-progn (compile body)])
