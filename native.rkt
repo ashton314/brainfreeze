@@ -48,7 +48,7 @@ _ptr:
 ;; x20 - tape start
 ;; x21 - data pointer
 ;; x22 - addr tape[ptr]
-;; x23 - misc
+;; x11 - misc
 
 (define fresh-label
   (let ([counter 0])                    ; let-over-lambda!
@@ -63,28 +63,28 @@ _ptr:
    (match instr
      [(add amount)
       ;; (printf "  tape[ptr] += ~a;\n" amount)
-      (printf "\tldrsb\tw11, [x20, x21]\n")      ; copy tape[ptr] to w11
+      (printf "\tldrsb\tw11, [x20, x21]\t;add ~a\n" amount) ; copy tape[ptr] to w11
       (printf "\tadd\tw11, w11, #~a\n" amount) ; increment w11
       (printf "\tstrb\tw11, [x20, x21]\n")       ; writeback w11 to tape[ptr]
       (emit-c instr-rst)]
      [(set-cell value)
       ;; (printf "  tape[ptr] = ~a;\n" value)
-      (printf "\tmov\tw11, #~a\n" value)
+      (printf "\tmov\tw11, #~a\t;set ~a\n" value value)
       (printf "\tstrb\tw11, [x20, x21]\n")
       (emit-c instr-rst)]
      [(shift amount)
       ;; (printf "  ptr += ~a;\n" amount)
-      (printf "\tadd\tx21, x21, #~a\n" amount)
+      (printf "\tadd\tx21, x21, #~a\t;shift ~a\n" amount amount)
       (emit-c instr-rst)]
      [(bf-write)
-      (printf "\tldrb\tw0, [x20, x21]\n")
+      (printf "\tldrb\tw0, [x20, x21]\t;write\n")
       (printf "\tbl _putchar\n")
       (emit-c instr-rst)]
      [(loop body)
       (let ([start-label (fresh-label)]
             ;; [body-label (fresh-label)]
             [end-label (fresh-label)])
-        (printf "~a:\n" start-label)
+        (printf "~a:\t;start loop\n" start-label)
         (printf "\tldrsb\tw11, [x20, x21]\n")      ; copy tape[ptr] to w11
         (printf "\tsubs\tw11, w11, #0\n")        ; w11 - 0; set the bit
         (printf "\tbeq\t~a\n" end-label)         ; exit loop
