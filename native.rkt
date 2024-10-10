@@ -12,10 +12,10 @@ _main:                                  ; @main
 	sub	sp, sp, #32
 	stp	x29, x30, [sp, #16]             ; 16-byte Folded Spill
 	add	x29, sp, #16
-	adrp   x10, _tape@PAGE
-	add	x8, x10, _tape@PAGEOFF
-	adrp	x10, _ptr@PAGE
-	ldrsw	x9, [x10, _ptr@PAGEOFF]
+	adrp   x22, _tape@PAGE
+	add	x20, x22, _tape@PAGEOFF
+	adrp	x22, _ptr@PAGE
+	ldrsw	x21, [x22, _ptr@PAGEOFF]
 ")
 
 (define postlude
@@ -33,8 +33,6 @@ _ptr:
 
 .zerofill __DATA,__bss,_tape,10000,0    ; @tape
 	.section	__TEXT,__cstring,cstring_literals
-l_.str:                                 ; @.str
-	.asciz	\"%c\"
 
 .subsections_via_symbols
 ")
@@ -45,10 +43,19 @@ l_.str:                                 ; @.str
   (displayln postlude))
 
 ;; Register reservations:
-;; x8 - tape start
-;; x9 - data pointer
-;; x10 - addr tape[ptr]
-;; x11 - misc
+;; x0 - reserved for function calls
+;; x1 - reserved for function calls
+;; x20 - tape start
+;; x21 - data pointer
+;; x22 - addr tape[ptr]
+;; x23 - misc
+
+(define fresh-label
+  (let ([counter 0])                    ; let-over-lambda!
+    (λ ()
+      (begin0
+          (format "LBB0_~a" counter)
+        (set! counter (+ 1 counter))))))
 
 (define/match (emit-c program)
   [('()) (displayln "")]
@@ -56,31 +63,34 @@ l_.str:                                 ; @.str
    (match instr
      [(add amount)
       ;; (printf "  tape[ptr] += ~a;\n" amount)
-      (printf "\tldrsb\tw11, [x8, x9]\n")      ; copy tape[ptr] to w11
+      (printf "\tldrsb\tw11, [x20, x21]\n")      ; copy tape[ptr] to w11
       (printf "\tadd\tw11, w11, #~a\n" amount) ; increment w11
-      (printf "\tstrb\tw11, [x8, x9]\n")       ; writeback w11 to tape[ptr]
+      (printf "\tstrb\tw11, [x20, x21]\n")       ; writeback w11 to tape[ptr]
       (emit-c instr-rst)]
      [(set-cell value)
       ;; (printf "  tape[ptr] = ~a;\n" value)
       (printf "\tmov\tw11, #~a\n" value)
-      (printf "\tstrb\tw11, [x8, x9]\n")
+      (printf "\tstrb\tw11, [x20, x21]\n")
       (emit-c instr-rst)]
      [(shift amount)
       ;; (printf "  ptr += ~a;\n" amount)
-      (printf "\tadd\tx9, x9, #~a\n" amount)
+      (printf "\tadd\tx21, x21, #~a\n" amount)
       (emit-c instr-rst)]
      [(bf-write)
-      ;; (printf "   printf(\"%c\", tape[ptr]);\n")
-      (printf "\tldrsb\tw11, [x8, x9]\n")      ; copy tape[ptr] to w11
-      (printf "\tstrb\tw11, [sp]\n")            ; push w11 onto stack
-      (printf "\tadrp\tx0, l_.str@PAGE\n")
-      (printf "\tadd\tx0, x0, l_.str@PAGEOFF\n")
-      (printf "bl\t_printf\n")
+      (printf "\tldrb\tw0, [x20, x21]\n")
+      (printf "\tbl _putchar\n")
       (emit-c instr-rst)]
      [(loop body)
-      ;; (printf "  while (tape[ptr] != 0) {\n")
-      (emit-c body)
-      ;; (printf "  }\n")
+      (let ([start-label (fresh-label)]
+            ;; [body-label (fresh-label)]
+            [end-label (fresh-label)])
+        (printf "~a:\n" start-label)
+        (printf "\tldrsb\tw11, [x20, x21]\n")      ; copy tape[ptr] to w11
+        (printf "\tsubs\tw11, w11, #0\n")        ; w11 - 0; set the bit
+        (printf "\tbeq\t~a\n" end-label)         ; exit loop
+        (emit-c body)
+        (printf "\tb\t~a\n" start-label)
+        (printf "~a:\n" end-label))
       (emit-c instr-rst)])])
 
 (define (compile-file filename)
