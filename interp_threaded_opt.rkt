@@ -36,7 +36,7 @@
     [(shift _) 1]
     [(set-cell _) 2]
     [(bf-write) 2]
-    [(bf-read) 1]))
+    [(bf-read) 2]))
 
 (define (parse-prog char-list)
   (match char-list
@@ -94,7 +94,6 @@
              combine-instrs))
 
 (define (combine-instrs prog [indent 0])
-  ;; (printf "~a prog: ~a\n\n\n" (string-append* (for/list ([i (range indent)]) "\t")) prog)
   (cond
     [(null? prog) prog]
     [(list? prog)
@@ -161,8 +160,29 @@
     [(list hd rst ...)
      (cons hd (opt/add rst))]
     ['() prog]))
-#;(define (opt/subt prog))
 #;(define (opt/mult prog))
+
+(define (opt/basic-loop prog)
+  prog)
+
+(define (analyze-loop instrs)
+  (let/cc return
+    (for/fold ([state (make-immutable-hash)]
+               [ptr 0])
+              ([i instrs])
+      (match i
+        [(add amount)
+         (values (hash-update state ptr (λ (x) (+ x amount)) 0) ptr)]
+        [(set-cell value)
+         (values (hash-set state ptr value) ptr)]
+        [(add-cell-0 dest)
+         (values (hash-set
+                  (hash-update state (+ ptr dest) (λ (x) (+ x (hash-ref state ptr 0))) 0)
+                  ptr 0)
+                 ptr)]
+        [(shift amount)
+         (values state (+ ptr amount))]
+        [_ (return #f)]))))
 
 (define (parse-combine filename)
   (let-values ([(p _) (parse-prog (parse-file filename))])
