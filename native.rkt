@@ -29,9 +29,9 @@ _main:                                  ; @main
 	.globl	_ptr                            ; @ptr
 	.p2align	2, 0x0
 _ptr:
-	.long	500                             ; 0x1f4
+	.long	5000
 
-.zerofill __DATA,__bss,_tape,10000,0    ; @tape
+.zerofill __DATA,__bss,_tape,100000,0    ; @tape
 	.section	__TEXT,__cstring,cstring_literals
 
 .subsections_via_symbols

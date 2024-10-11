@@ -57,6 +57,11 @@
                          (λ (state sp)
                            (display (integer->char (vector-ref state sp)))
                            (rest-progn state sp)))]
+                  [#\,
+                   (let ([rest-progn (compile program (+ 1 c-ip) jmp-targets inst-cache)])
+                     (λ (state sp)
+                       (vector-set! state sp (char->integer (read-char)))
+                       (rest-progn state sp)))]
                   [(jmp-forward target)
                    (letrec ([loop-start (λ (state sp)
                                           (if (zero? (vector-ref state sp))

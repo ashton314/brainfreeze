@@ -13,12 +13,12 @@ my @bfs = glob "prog-*.b";
 
 sub run1($) {
   (my $f) = @_;
-  system("../bf-interp $f < input.dat > output.dat");
+  system("racket ../interp_threaded_opt.rkt $f < input.dat > output.dat");
 }
 
 sub run2($) {
   (my $f) = @_;
-  system("racket ../native.rkt $f > prog.s");
+  system("racket ../native.rkt $f > prog.s 2>/dev/null");
   system("clang prog.s -O -o bf");
   system("./bf < input.dat > output.dat 2>/dev/null");
 }
