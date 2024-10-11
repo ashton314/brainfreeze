@@ -47,7 +47,7 @@ _ptr:
 ;; x1 - reserved for function calls
 ;; x20 - tape start
 ;; x21 - data pointer
-;; x22 - addr tape[ptr]
+;; x22 - misc
 ;; x11 - misc
 
 (define fresh-label
@@ -66,6 +66,15 @@ _ptr:
       (printf "\tldrsb\tw11, [x20, x21]\t;add ~a\n" amount) ; copy tape[ptr] to w11
       (printf "\tadd\tw11, w11, #~a\n" amount) ; increment w11
       (printf "\tstrb\tw11, [x20, x21]\n")       ; writeback w11 to tape[ptr]
+      (emit-c instr-rst)]
+     [(add-cell-0 dest)
+      (printf "\tldrsb\tw11, [x20, x21]\t;add-cell-0\n") ; copy tape[ptr] to w11
+      (printf "\tmov\tw22, #0\n")
+      (printf "\tstrb\tw22, [x20, x21]\n") ; zero out current cell
+      (printf "\tadd\tx22, x21, #~a\n" dest) ; compute dest
+      (printf "\tldrsb\tw23, [x20, x22]\n")
+      (printf "\tadd\tw11, w11, w23\n")
+      (printf "\tstrb\tw11, [x20, x22]\n") ; write sum to destination
       (emit-c instr-rst)]
      [(set-cell value)
       ;; (printf "  tape[ptr] = ~a;\n" value)

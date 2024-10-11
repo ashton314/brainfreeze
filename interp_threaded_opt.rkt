@@ -14,15 +14,28 @@
 (struct set-cell (value) #:transparent)
 (struct bf-write () #:transparent)
 (struct bf-read () #:transparent)
+(struct add-cell-0 (dest) #:transparent) ; zero current cell; add value to another cell
 
 (define (tree-size thingy)
   (match thingy
     [(list is ...) (apply + (map tree-size is))]
     [(loop body) (+ 1 (tree-size body))]
     [(add _) 1]
+    [(add-cell-0 _) 1]
     [(shift _) 1]
     [(set-cell _) 1]
     [(bf-write) 1]
+    [(bf-read) 1]))
+
+(define (instr-size thingy)
+  (match thingy
+    [(list is ...) (apply + (map instr-size is))]
+    [(loop body) (+ 4 (tree-size body))]
+    [(add _) 3]
+    [(add-cell-0 _) 7]
+    [(shift _) 1]
+    [(set-cell _) 2]
+    [(bf-write) 2]
     [(bf-read) 1]))
 
 (define (parse-prog char-list)
@@ -62,13 +75,23 @@
          (eprintf "~a opts (~a)> " input-size opt-name-stx)
          (let* ([output (opt-name input)]
                 [output-size (tree-size output)])
-           (eprintf "~a opts\n" output-size)
+           (eprintf "~a opts (~a -> ~a asm instrs)\n" output-size (instr-size input) (instr-size output))
            output))]))
 
+(define-syntax (opt-chain stx)
+  (syntax-parse stx
+    [(_ (prog) opt-name)
+     #'(opt-pass opt-name prog)]
+    [(_ (prog) opt-name opt-names ...)
+     #'(opt-pass opt-name (opt-chain (prog) opt-names ...))]))
+
 (define (optimize prog)
-  (opt-pass opt/zero-add->set
-            (opt-pass opt/zero-out
-                      (opt-pass combine-instrs prog))))
+  (opt-chain (prog)
+             opt/zero-add->set
+             opt/zero-out
+             ;; opt/copy
+             opt/add
+             combine-instrs))
 
 (define (combine-instrs prog)
   (cond
@@ -97,12 +120,53 @@
 
 (define (opt/zero-add->set prog)
   (match prog
-    [(loop body) (loop (opt/zero-add->set body))]
     [(list (set-cell n) (add m) rst ...)
      (cons (set-cell (+ n m)) (opt/zero-add->set rst))]
+    [(list (loop body) rst ...)
+     (cons (loop (opt/zero-add->set body)) (opt/zero-add->set rst))]
     [(list hd rst ...)
      (cons hd (opt/zero-add->set rst))]
     ['() prog]))
+
+(define (opt/copy prog)
+  (match prog
+    [(list (loop (list (shift s1) (add 1) (shift s2) (add 1) (shift s3) (add -1)))
+           (shift s4)
+           (loop (list (shift s5) (add 1) (shift s6) (add -1)))
+           rst ...)
+     (eprintf "copy fired\n")
+     prog]
+    [(list (loop body) rst ...)
+     (cons (loop (opt/copy body)) (opt/copy rst))]
+    [(list hd rst ...)
+     (cons hd (opt/copy rst))]
+    [_ prog]))
+
+(define add-tries 0)
+(define (opt/add prog)
+  (set! add-tries (+ add-tries 1))
+  (match prog
+    [(list (loop (list (shift x1) (add a1) (shift x2) (add a2)))
+           rst ...)
+     #:when (and (zero? (+ x1 x2)) (< a2 0) (zero? (+ a1 a2)))
+     (cons (add-cell-0 x1) (opt/add rst))]
+    [(list (loop (list (add a1) (shift x1) (add a2) (shift x2)))
+           rst ...)
+     #:when (and (zero? (+ x1 x2)) (< a1 0) (zero? (+ a1 a2)))
+     (cons (add-cell-0 x1) (opt/add rst))]
+    [(list (loop body) rst ...)
+     (cons (loop (opt/add body)) (opt/add rst))]
+    [(list hd rst ...)
+     (cons hd (opt/add rst))]
+    ['() prog]))
+#;(define (opt/subt prog))
+#;(define (opt/mult prog))
+
+(define (parse-combine filename)
+  (let-values ([(p _) (parse-prog (parse-file filename))])
+    (combine-instrs p)))
+
+(define p2 (parse-combine "./bench/benches/hanoi.b"))
 
 (define/match (compile program)
   [('()) (λ (sp st) (values sp st))]
