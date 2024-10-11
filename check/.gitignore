@@ -1,0 +1,4 @@
+output*.dat
+*~
+*.s
+input.dat
