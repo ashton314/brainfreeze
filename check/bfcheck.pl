@@ -12,32 +12,32 @@ my @bfs = glob "prog-*.b";
 # name) and input.dat is a file that you should assume already exists
 
 sub run1($) {
-    (my $f) = @_;
-    system("../bf-interp $f < input.dat > output.dat");
+  (my $f) = @_;
+  system("../bf-interp $f < input.dat > output.dat");
 }
 
 sub run2($) {
-    (my $f) = @_;
-    system("../bf-asm < $f");
-    system("clang prog.s ../bf-main.c -O -o bf");
-    system("./bf < input.dat > output.dat 2>/dev/null");
+  (my $f) = @_;
+  system("racket ../native.rkt $f > prog.s");
+  system("clang prog.s -O -o bf");
+  system("./bf < input.dat > output.dat 2>/dev/null");
 }
 
 my $success = 0;
 my $fail = 0;
 
 foreach my $f (@bfs) {
-    print "$f\n";
-    die unless $f =~ /^prog-([0-9]+).b$/;
-    my $num = $1;
-    run2($f);
-    my $res = system("diff output.dat output-$num.dat");
-    if ($res == 0) {
-	++$success;
+  print "$f\n";
+  die unless $f =~ /^prog-([0-9]+).b$/;
+  my $num = $1;
+  run2($f);
+  my $res = system("diff output.dat output-$num.dat");
+  if ($res == 0) {
+    ++$success;
     print("\tpassed.\n");
-    } else {
-	++$fail;
-	print("\tfailed.\n");
-    }
+  } else {
+    ++$fail;
+    print("\tfailed.\n");
+  }
 }
 print("\n\n$fail failures, $success successes\n\n");

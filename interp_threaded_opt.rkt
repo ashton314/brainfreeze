@@ -93,10 +93,12 @@
              opt/add
              combine-instrs))
 
-(define (combine-instrs prog)
+(define (combine-instrs prog [indent 0])
+  ;; (printf "~a prog: ~a\n\n\n" (string-append* (for/list ([i (range indent)]) "\t")) prog)
   (cond
+    [(null? prog) prog]
     [(list? prog)
-     (let ([new-prog (list (combine-instrs (car prog)))])
+     (let ([new-prog (list (combine-instrs (car prog) (+ 1 indent)))])
        (for ([i (cdr prog)])
          (match (cons i (car new-prog))
            [(cons (add a1) (add a2))
@@ -104,11 +106,11 @@
            [(cons (shift s1) (shift s2))
             (set! new-prog (cons (shift (+ s1 s2)) (cdr new-prog)))]
            [(cons (loop body) _)
-            (set! new-prog (cons (loop (combine-instrs body)) new-prog))]
+            (set! new-prog (cons (loop (combine-instrs body (+ 1 indent))) new-prog))]
            [_
             (set! new-prog (cons i new-prog))]))
        (reverse new-prog))]
-    [(loop? prog) (loop (combine-instrs (loop-body prog)))]
+    [(loop? prog) (loop (combine-instrs (loop-body prog) (+ 1 indent)))]
     [else prog]))
 
 (define (opt/zero-out prog)
@@ -166,7 +168,7 @@
   (let-values ([(p _) (parse-prog (parse-file filename))])
     (combine-instrs p)))
 
-(define p2 (parse-combine "./bench/benches/hanoi.b"))
+#;(define p2 (parse-combine "./bench/benches/hanoi.b"))
 
 (define/match (compile program)
   [('()) (λ (sp st) (values sp st))]

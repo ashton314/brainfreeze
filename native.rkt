@@ -89,6 +89,10 @@ _ptr:
       (printf "\tldrb\tw0, [x20, x21]\t;write\n")
       (printf "\tbl _putchar\n")
       (emit-c instr-rst)]
+     [(bf-read)
+      (printf "\tbl _getchar\t;read\n")
+      (printf"\tstrb\tw0, [x20, x21]\n")
+      (emit-c instr-rst)]
      [(loop body)
       (let ([start-label (fresh-label)]
             ;; [body-label (fresh-label)]
