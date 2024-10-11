@@ -181,6 +181,11 @@
         (λ (sp st)
           (vector-set! st sp value)
           (rest-progn sp st))]
+       [(add-cell-0 dest)
+        (λ (sp st)
+          (vector-set! st (+ sp dest) (+ (vector-ref st sp) (vector-ref st (+ sp dest))))
+          (vector-set! st sp 0)
+          (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
           (rest-progn (+ sp amount) st))]
