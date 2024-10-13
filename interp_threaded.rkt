@@ -1,9 +1,14 @@
 #lang racket
 
-(define (parse-file filename)
+(provide interp-run)
+
+(define (parse-program str)
   (list->vector
    (filter (λ (c) (member c '(#\> #\< #\+ #\- #\. #\, #\[ #\])))
-           (string->list (file->string filename)))))
+           (string->list str))))
+
+(define (parse-file filename)
+  (parse-program (file->string filename)))
 
 (struct jmp (amount) #:transparent)
 (struct jmp-forward jmp () #:transparent)
@@ -80,6 +85,11 @@
                   void))])
        (hash-set! inst-cache c-ip compiled)
        compiled))))
+
+(define (interp-run prog)
+  (let ([p (parse-program prog)])
+    (preprocess-loops! p)
+    ((compile p 0 null (make-hash)) (make-vector 1000000) 500000)))
 
 (let* ([the-file (command-line #:program "interp_threaded" #:args (filename) filename)]
        [program (parse-file the-file)])

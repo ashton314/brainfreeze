@@ -4,9 +4,12 @@
 
 (provide (all-defined-out))
 
-(define (parse-file filename)
+(define (parse-prog-str str)
   (filter (λ (c) (member c '(#\> #\< #\+ #\- #\. #\, #\[ #\])))
-          (string->list (file->string filename))))
+          (string->list str)))
+
+(define (parse-file filename)
+  (parse-prog-str (file->string filename)))
 
 (struct loop (body) #:transparent)
 (struct add (amount) #:transparent)
@@ -15,6 +18,7 @@
 (struct bf-write () #:transparent)
 (struct bf-read () #:transparent)
 (struct add-cell-0 (dest) #:transparent) ; zero current cell; add value to another cell
+(struct mult-block-0 (body) #:transparent) ; cells in body + current * cell count; current zeroed
 
 (define (tree-size thingy)
   (match thingy
@@ -22,6 +26,7 @@
     [(loop body) (+ 1 (tree-size body))]
     [(add _) 1]
     [(add-cell-0 _) 1]
+    [(mult-block-0 body) (length (hash-keys body))]
     [(shift _) 1]
     [(set-cell _) 1]
     [(bf-write) 1]
@@ -33,6 +38,7 @@
     [(loop body) (+ 4 (tree-size body))]
     [(add _) 3]
     [(add-cell-0 _) 7]
+    [(mult-block-0 body) (* 2 (length (hash-keys body)))]
     [(shift _) 1]
     [(set-cell _) 2]
     [(bf-write) 2]
@@ -87,10 +93,10 @@
 
 (define (optimize prog)
   (opt-chain (prog)
-             opt/zero-add->set
+             ;; opt/zero-add->set
+             opt/basic-loop
              opt/zero-out
-             ;; opt/copy
-             opt/add
+             ;; opt/add
              combine-instrs))
 
 (define (combine-instrs prog [indent 0])
@@ -143,9 +149,7 @@
      (cons hd (opt/copy rst))]
     [_ prog]))
 
-(define add-tries 0)
 (define (opt/add prog)
-  (set! add-tries (+ add-tries 1))
   (match prog
     [(list (loop (list (shift x1) (add a1) (shift x2) (add a2)))
            rst ...)
@@ -163,7 +167,16 @@
 #;(define (opt/mult prog))
 
 (define (opt/basic-loop prog)
-  prog)
+  (match prog
+    [(loop body)
+     (let-values ([(state ptr-amount) (analyze-loop body)])
+       (if (and state
+                (zero? ptr-amount)
+                (= -1 (hash-ref state 0)))
+           (mult-block-0 state)
+           (loop (map opt/basic-loop body))))]
+    [(list rst ...) (map opt/basic-loop rst)]
+    [_ prog]))
 
 (define (analyze-loop instrs)
   (let/cc return
@@ -173,6 +186,7 @@
       (match i
         [(add amount)
          (values (hash-update state ptr (λ (x) (+ x amount)) 0) ptr)]
+        ;; This isn't right
         [(set-cell value)
          (values (hash-set state ptr value) ptr)]
         [(add-cell-0 dest)
@@ -182,7 +196,7 @@
                  ptr)]
         [(shift amount)
          (values state (+ ptr amount))]
-        [_ (return #f)]))))
+        [_ (return #f #f)]))))
 
 (define (parse-combine filename)
   (let-values ([(p _) (parse-prog (parse-file filename))])
@@ -207,6 +221,12 @@
         (λ (sp st)
           (vector-set! st (+ sp dest) (+ (vector-ref st sp) (vector-ref st (+ sp dest))))
           (vector-set! st sp 0)
+          (rest-progn sp st))]
+       [(mult-block-0 body)
+        (λ (sp st)
+          (let ([cur (vector-ref st sp)])
+            (for ([(k v) body])
+              (vector-set! st (+ sp k) (+ (vector-ref st (+ sp k)) (* cur v)))))
           (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
