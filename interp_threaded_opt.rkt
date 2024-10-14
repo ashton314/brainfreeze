@@ -93,10 +93,10 @@
 
 (define (optimize prog)
   (opt-chain (prog)
-             ;; opt/zero-add->set
+             opt/zero-add->set
              opt/basic-loop
              opt/zero-out
-             ;; opt/add
+             opt/add
              combine-instrs))
 
 (define (combine-instrs prog [indent 0])
@@ -187,12 +187,12 @@
         [(add amount)
          (values (hash-update state ptr (λ (x) (+ x amount)) 0) ptr)]
         ;; This isn't right
-        [(set-cell value)
-         (values (hash-set state ptr value) ptr)]
-        [(add-cell-0 dest)
+        #;[(set-cell value)
+         (values (hash-set state ptr (cons 'abs value)) ptr)]
+        #;[(add-cell-0 dest)
          (values (hash-set
                   (hash-update state (+ ptr dest) (λ (x) (+ x (hash-ref state ptr 0))) 0)
-                  ptr 0)
+                  ptr (cons 'abs 0))
                  ptr)]
         [(shift amount)
          (values state (+ ptr amount))]
@@ -226,7 +226,9 @@
         (λ (sp st)
           (let ([cur (vector-ref st sp)])
             (for ([(k v) body])
-              (vector-set! st (+ sp k) (+ (vector-ref st (+ sp k)) (* cur v)))))
+              (match v
+                [(cons 'abs av) (vector-set! st (+ sp k) av)]
+                [_ (vector-set! st (+ sp k) (+ (vector-ref st (+ sp k)) (* cur v)))])))
           (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
