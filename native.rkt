@@ -100,46 +100,43 @@ _ptr:
   [((cons instr instr-rst))
    (match instr
      [(add amount)
-      ;; (printf "  tape[ptr] += ~a;\n" amount)
-      (printf "\tldrsb\tw11, [x20, x21]\t;add ~a\n" amount) ; copy tape[ptr] to w11
-      (printf "\tadd\tw11, w11, #~a\n" amount) ; increment w11
-      (printf "\tstrb\tw11, [x20, x21]\n")       ; writeback w11 to tape[ptr]
+      (display (i/load-ptr 'w11 (format "\t;add ~a" amount)))
+      (display (i/add 'w11 'w11 (i/i amount)))
+      (display (i/store-ptr 'w11))
       (emit-asm instr-rst)]
      [(add-cell-0 dest)
-      (printf "\tldrsb\tw11, [x20, x21]\t;add-cell-0\n") ; copy tape[ptr] to w11
-      (printf "\tstrb\twzr, [x20, x21]\n") ; zero out current cell
-      (printf "\tadd\tx22, x21, #~a\n" dest) ; compute dest
-      (printf "\tldrsb\tw23, [x20, x22]\n")
-      (printf "\tadd\tw11, w11, w23\n")
-      (printf "\tstrb\tw11, [x20, x22]\n") ; write sum to destination
+      (display (i/load-ptr 'w11 "\t;add-cell-0")) ; copy tape[ptr] to w11
+      (display (i/store-ptr 'wzr))                ; zero out current cell
+      (display (i/add 'x22 'x21 (i/i dest)))      ; compute dest
+      (display (i/load 'w23 'x20 'x22))           ; get value at dest
+      (display (i/add 'w11 'w11 'w23))            ; add old pointer value
+      (display (i/store 'w11 'x20 'x22))          ; write sum to dest
       (emit-asm instr-rst)]
      [(mult-block-0 body)
-      (display (i/add 'x22 'x20 'x21))        ; put base offset in x22
-      (display (i/load1 'x23 'x22))           ; current value in x23
+      (display (i/add 'x22 'x20 'x21              ; put base offset in x22
+                      "\t;mult-block-0"))
+      (display (i/load1 'x23 'x22))               ; current value in x23
       (for ([idx (sort (hash-keys body) <)]
             #:unless (or (= idx 0) (zero? (hash-ref body idx))))
-        (display (i/add 'x24 'x22 (i/i idx))) ; compute offset address → x24
-        (display (i/load1 'x25 'x24))         ; put that value in x25
-        (display                              ; x11 ← x23 * analyzed
+        (display (i/add 'x24 'x22 (i/i idx)))     ; compute offset address → x24
+        (display (i/load1 'x25 'x24))             ; put that value in x25
+        (display                                  ; x11 ← x23 * analyzed
          (mult-immediate 'x11 'x23
                          (abs (hash-ref body idx))))
         (cond
           [(negative? (hash-ref body idx))
-           (display (i/subs 'w11 'w25 'w11))  ; x11 = x25 - x11 (value of this cell)
-           ]
+           (display (i/subs 'w11 'w25 'w11))]     ; x11 = x25 - x11 (value of this cell)
           [else
-           (display (i/add 'w11 'w25 'w11))   ; x11 = x25 + x11 (value of this cell)
-           ])
-        (display (i/store1 'w11 'x24)))       ; write that back
-      (display (i/store-ptr 'wzr))            ; zero out current cell
+           (display (i/add 'w11 'w25 'w11))])     ; x11 = x25 + x11 (value of this cell)
+        (display (i/store1 'w11 'x24)))           ; write that back
+      (display (i/store-ptr 'wzr))                ; zero out current cell
       (emit-asm instr-rst)]
      [(set-cell value)
-      (printf "\tmov\tw11, #~a\t;set ~a\n" value value)
-      (printf "\tstrb\tw11, [x20, x21]\n")
+      (display (i/movi 'w11 value (format "\t;set ~a" value)))
+      (display (i/store-ptr 'w11))
       (emit-asm instr-rst)]
      [(shift amount)
-      ;; (printf "  ptr += ~a;\n" amount)
-      (printf "\tadd\tx21, x21, #~a\t;shift ~a\n" amount amount)
+      (display (i/add 'x21 'x21 (i/i amount) (format "\t;shift ~a" amount)))
       (emit-asm instr-rst)]
      [(bf-write)
       (printf "\tldrb\tw0, [x20, x21]\t;write\n")
@@ -151,7 +148,6 @@ _ptr:
       (emit-asm instr-rst)]
      [(loop body)
       (let ([start-label (fresh-label)]
-            ;; [body-label (fresh-label)]
             [end-label (fresh-label)])
         (printf "~a:\t;start loop\n" start-label)
         (printf "\tldrsb\tw11, [x20, x21]\n")      ; copy tape[ptr] to w11

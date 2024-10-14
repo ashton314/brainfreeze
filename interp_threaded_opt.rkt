@@ -97,6 +97,7 @@
              opt/basic-loop
              opt/zero-out
              opt/add
+             opt/useless
              combine-instrs))
 
 (define (combine-instrs prog [indent 0])
@@ -135,13 +136,13 @@
      (cons hd (opt/zero-add->set rst))]
     ['() prog]))
 
+#;
 (define (opt/copy prog)
   (match prog
     [(list (loop (list (shift s1) (add 1) (shift s2) (add 1) (shift s3) (add -1)))
            (shift s4)
            (loop (list (shift s5) (add 1) (shift s6) (add -1)))
            rst ...)
-     (eprintf "copy fired\n")
      prog]
     [(list (loop body) rst ...)
      (cons (loop (opt/copy body)) (opt/copy rst))]
@@ -151,28 +152,43 @@
 
 (define (opt/add prog)
   (match prog
-    [(list (loop (list (shift x1) (add a1) (shift x2) (add a2)))
-           rst ...)
+    [(cons (loop (list (shift x1) (add a1) (shift x2) (add a2)))
+           rst)
      #:when (and (zero? (+ x1 x2)) (< a2 0) (zero? (+ a1 a2)))
      (cons (add-cell-0 x1) (opt/add rst))]
-    [(list (loop (list (add a1) (shift x1) (add a2) (shift x2)))
-           rst ...)
+    [(cons (loop (list (add a1) (shift x1) (add a2) (shift x2)))
+           rst)
      #:when (and (zero? (+ x1 x2)) (< a1 0) (zero? (+ a1 a2)))
      (cons (add-cell-0 x1) (opt/add rst))]
-    [(list (loop body) rst ...)
+    [(cons (loop body) rst)
      (cons (loop (opt/add body)) (opt/add rst))]
-    [(list hd rst ...)
+    [(cons hd rst)
      (cons hd (opt/add rst))]
     ['() prog]))
-#;(define (opt/mult prog))
+
+;; drop useless instructions
+(define (opt/useless prog)
+  (match prog
+    [(list (loop body) rst ...)
+     (cons (loop (opt/useless body)) (opt/useless rst))]
+    [(cons (shift 0) rst)
+     (opt/useless rst)]
+    [(cons (add 0) rst)
+     (opt/useless rst)]
+    [(cons x rst)
+     (cons x (opt/useless rst))]
+    ['() prog]))
+
+#;
+(define (opt/mult prog))
 
 (define (opt/basic-loop prog)
   (match prog
     [(loop body)
      (let-values ([(state ptr-amount) (analyze-loop body)])
        (if (and state
-                (zero? ptr-amount)
-                (= -1 (hash-ref state 0)))
+                (not (hash-empty? state))
+                (eqv? -1 (hash-ref state 0 'nothing)))
            (mult-block-0 state)
            (loop (map opt/basic-loop body))))]
     [(list rst ...) (map opt/basic-loop rst)]
@@ -186,14 +202,6 @@
       (match i
         [(add amount)
          (values (hash-update state ptr (λ (x) (+ x amount)) 0) ptr)]
-        ;; This isn't right
-        #;[(set-cell value)
-         (values (hash-set state ptr (cons 'abs value)) ptr)]
-        #;[(add-cell-0 dest)
-         (values (hash-set
-                  (hash-update state (+ ptr dest) (λ (x) (+ x (hash-ref state ptr 0))) 0)
-                  ptr (cons 'abs 0))
-                 ptr)]
         [(shift amount)
          (values state (+ ptr amount))]
         [_ (return #f #f)]))))
