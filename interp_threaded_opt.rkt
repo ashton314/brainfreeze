@@ -100,6 +100,15 @@
              opt/useless
              combine-instrs))
 
+(define (optimize-no-loop prog)
+  (opt-chain (prog)
+             opt/zero-add->set
+             ;; opt/basic-loop
+             opt/zero-out
+             opt/add
+             opt/useless
+             combine-instrs))
+
 (define (combine-instrs prog [indent 0])
   (cond
     [(null? prog) prog]
@@ -122,6 +131,7 @@
 (define (opt/zero-out prog)
   (match prog
     [(loop (list (add -1))) (set-cell 0)]
+    [(loop (list (add +1))) (set-cell 0)]
     [(loop body) (loop (map opt/zero-out body))]
     [(list is ...) (map opt/zero-out is)]
     [_ prog]))
@@ -187,9 +197,12 @@
     [(loop body)
      (let-values ([(state ptr-amount) (analyze-loop body)])
        (if (and state
+                (zero? ptr-amount)
                 (not (hash-empty? state))
                 (eqv? -1 (hash-ref state 0 'nothing)))
-           (mult-block-0 state)
+           (begin
+             (eprintf "prog: ~a; state: ~a\n" prog state)
+             (mult-block-0 state))
            (loop (map opt/basic-loop body))))]
     [(list rst ...) (map opt/basic-loop rst)]
     [_ prog]))
@@ -212,6 +225,15 @@
 
 #;(define p2 (parse-combine "./bench/benches/hanoi.b"))
 
+(begin-for-syntax (define *instrument?* #f))
+
+(define-syntax (dbg stx)
+  (syntax-parse stx
+    [(_ fmt vars ...)
+     (if *instrument?*
+         #'(eprintf fmt vars ...)
+         #'"")]))
+
 (define/match (compile program)
   [('()) (λ (sp st) (values sp st))]
   [((cons instr instr-rst))
@@ -219,52 +241,55 @@
      (match instr
        [(add amount)
         (λ (sp st)
+          (dbg "[add ~a]\n" amount)
           (vector-set! st sp (+ amount (vector-ref st sp)))
+          (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
        [(set-cell value)
         (λ (sp st)
+          (dbg "[set-cell ~a]\n" value)
           (vector-set! st sp value)
+          (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
        [(add-cell-0 dest)
         (λ (sp st)
+          (dbg "[add-cell-0 ~a]\n" dest)
           (vector-set! st (+ sp dest) (+ (vector-ref st sp) (vector-ref st (+ sp dest))))
           (vector-set! st sp 0)
+          (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
        [(mult-block-0 body)
         (λ (sp st)
+          (dbg "[multi-block-0 ~a]\n" body)
           (let ([cur (vector-ref st sp)])
             (for ([(k v) body])
               (match v
                 [(cons 'abs av) (vector-set! st (+ sp k) av)]
                 [_ (vector-set! st (+ sp k) (+ (vector-ref st (+ sp k)) (* cur v)))])))
+          (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
        [(shift amount)
         (λ (sp st)
+          (dbg "[shift ~a]\n" amount)
+          (dbg "\tsp: ~a\n\tst: ~a\n" (+ sp amount) st)
           (rest-progn (+ sp amount) st))]
        [(bf-write)
         (λ (sp st)
           (display (integer->char (vector-ref st sp)))
+          (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
        [(bf-read)
         (λ (sp st)
           (vector-set! st sp (char->integer (read-char)))
+          (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
        [(loop body)
         (let ([body-progn (compile body)])
           (letrec ([the-loop (λ (sp st)
-                               ;; Help! Can I make this more efficient?
+                               (dbg "[loop(top)]\n")
+                               (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
                                (if (zero? (vector-ref st sp))
                                    (rest-progn sp st)
                                    (let-values ([(new-sp new-st) (body-progn sp st)])
                                      (the-loop new-sp new-st))))])
             the-loop))]))])
-
-
-;; (define p1 (parse-file "bench/benches/hello.b"))
-;; (define-values (pp1 _blah) (parse-prog p1))
-;; (define o1 (optimize pp1))
-
-;; (define p2 (parse-file "bench/benches/mandel.b"))
-;; (define-values (pp2 _blah2) (parse-prog p2))
-;; (define o2 (optimize pp2))
-
