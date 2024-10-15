@@ -200,9 +200,7 @@
                 (zero? ptr-amount)
                 (not (hash-empty? state))
                 (eqv? -1 (hash-ref state 0 'nothing)))
-           (begin
-             (eprintf "prog: ~a; state: ~a\n" prog state)
-             (mult-block-0 state))
+           (mult-block-0 state)
            (loop (map opt/basic-loop body))))]
     [(list rst ...) (map opt/basic-loop rst)]
     [_ prog]))

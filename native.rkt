@@ -85,6 +85,15 @@ _ptr:
 (define (i/mul dest arg1 arg2 [comment ""])
   (format "\tmul\t~a, ~a, ~a~a\n" dest arg1 arg2 comment))
 
+(define (i/subcall l [comment ""])
+  (format "\tbl ~a~a\n" l comment))
+(define (i/label name [comment ""])
+  (format "~a:~a\n" name comment))
+(define (i/branch label [comment ""])
+  (format "\tb\t~a~a\n" label comment))
+(define (i/branch-eq label [comment ""])
+  (format "\tbeq\t~a~a\n" label comment))
+
 (define (mult-immediate dest arg1 arg2)
   (cond
     [(zero? arg2) (i/mov dest 'wzr)]
@@ -139,23 +148,23 @@ _ptr:
       (display (i/add 'x21 'x21 (i/i amount) (format "\t;shift ~a" amount)))
       (emit-asm instr-rst)]
      [(bf-write)
-      (printf "\tldrb\tw0, [x20, x21]\t;write\n")
-      (printf "\tbl _putchar\n")
+      (display (i/load-ptr 'w0 "\t;write"))
+      (display (i/subcall '_putchar))
       (emit-asm instr-rst)]
      [(bf-read)
-      (printf "\tbl _getchar\t;read\n")
-      (printf"\tstrb\tw0, [x20, x21]\n")
+      (display (i/subcall '_getchar "\t;read"))
+      (display (i/store-ptr 'w0))
       (emit-asm instr-rst)]
      [(loop body)
       (let ([start-label (fresh-label)]
             [end-label (fresh-label)])
-        (printf "~a:\t;start loop\n" start-label)
-        (printf "\tldrsb\tw11, [x20, x21]\n")      ; copy tape[ptr] to w11
-        (printf "\tsubs\tw11, w11, #0\n")        ; w11 - 0; set the bit
-        (printf "\tbeq\t~a\n" end-label)         ; exit loop
+        (display (i/label start-label "\t;start loop"))
+        (display (i/load-ptr 'w11))
+        (display (i/subs 'w11 'w11 (i/i 0)))
+        (display (i/branch-eq end-label))
         (emit-asm body)
-        (printf "\tb\t~a\n" start-label)
-        (printf "~a:\n" end-label))
+        (display (i/branch start-label))
+        (display (i/label end-label)))
       (emit-asm instr-rst)])])
 
 (define (compile-file filename)
@@ -168,3 +177,14 @@ _ptr:
 
 (let* ([the-file (command-line #:program "native.rkt" #:args (filename) filename)])
   (compile-file the-file))
+
+#;
+(define (compile-file-noop filename)
+  (displayln "Parsing..." (current-error-port))
+  (let-values ([(program _) (parse-prog (parse-file filename))])
+    (eprintf "Parsed. Program is ~a instructions. Skipping optimizations.\n" (tree-size program))
+    (compile-to-asm program)))
+
+#;
+(let* ([the-file (command-line #:program "native.rkt" #:args (filename) filename)])
+  (compile-file-noop the-file))
