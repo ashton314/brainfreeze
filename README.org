@@ -15,7 +15,7 @@ Interpreters:
 Compilers:
 
 #+begin_src bash
-  racket comp_c.rkt bench/benches/mandel.b > mandel.c && clang -O3 mandel.c -o mandel && ./mandel
+  racket native.rkt bench/benches/mandel.b > mandel.s && clang mandel.s -o mandel && ./mandel
 #+end_src
 
 * Description
@@ -31,7 +31,7 @@ This project contains a set of interpreters and compilers for the BF language.
 ** Compilers
 
  - [[file:comp_c.rkt][comp_c.rkt]] :: Lowers optimized code (from =interp_threaded_opt.rkt=) to C.
- -  :: 
+ - [[file:native.rkt][native.rkt]] :: Emits ARM assembly (from =interp_threaded_opt.rkt=)
 
 * Author
 
