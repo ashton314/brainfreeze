@@ -5,6 +5,26 @@
 (define prelude
   "	.section	__TEXT,__text,regular,pure_instructions
 	.build_version macos, 14, 0	sdk_version 15, 0
+	.section	__TEXT,__literal16,16byte_literals
+	.p2align	4, 0x0
+lIDX:
+	.byte	0                               ; 0x0
+	.byte	1                               ; 0x1
+	.byte	2                               ; 0x2
+	.byte	3                               ; 0x3
+	.byte	4                               ; 0x4
+	.byte	5                               ; 0x5
+	.byte	6                               ; 0x6
+	.byte	7                               ; 0x7
+	.byte	8                               ; 0x8
+	.byte	9                               ; 0x9
+	.byte	10                              ; 0xa
+	.byte	11                              ; 0xb
+	.byte	12                              ; 0xc
+	.byte	13                              ; 0xd
+	.byte	14                              ; 0xe
+	.byte	15                              ; 0xf
+	.section	__TEXT,__text,regular,pure_instructions
 	.globl	_main                           ; -- Begin function main
 	.p2align	2
 _main:                                  ; @main
@@ -166,6 +186,39 @@ _ptr:
         (display (i/branch start-label))
         (display (i/label end-label)))
       (emit-asm instr-rst)])])
+
+    ;; adrp    x27, lCPI0_0@PAGE
+    ;; ldr q0, [x27, lCPI0_0@PAGEOFF] ;v0 = idx
+    ;; adrp    x27, lCPI1_7@PAGE
+    ;; ldr q3, [x27, lCPI1_7@PAGEOFF] ;v3 = stride
+    ;; movi.2d v1, #0                 ;v1 = zeros
+    ;; add x24, x20, x21
+    ;; ld1 {v2.16b}, [x24]            ;v2 = tape
+    ;; cmeq.16b    v2, v2, v1         ;v2 = tape vec_eq zeros
+    ;; ;; and.16b v2, v2, v3             ;stride mask
+    ;; orn.16b v0, v0, v2             ;v0 = idx or !(tape == zeros)
+    ;; uminv.16b   b1, v0
+    ;; umov        w21, v1.b[0]
+
+(define (emit-stride-asm stride)
+  42)
+
+(define (get-stride-mask-labels stride)
+  (case stride
+    [(1) '(lSTRIDE1)]
+    [(2) '(lSTRIDE2)]
+    [(4) '(lSTRIDE4)]
+    [(8) '(lSTRIDE8)]
+    [(16) '(lSTRIDE16)]))
+
+(define (emit-stride-masks stride)
+  (when (not (member stride '(1 2 4 8 16)))
+    (error "can't handle stride ~a" stride))
+  (let ([label (string->symbol (format "lSTRIDE~a" stride))])
+    (display (i/label label))
+    (for ([i (range 0 16)])
+      (display (format "\t.byte\t~a\n"
+                       (if (zero? (remainder i stride)) "0xff" "0x0"))))))
 
 (define (compile-file filename)
   (displayln "Parsing..." (current-error-port))

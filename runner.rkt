@@ -13,4 +13,4 @@
         (displayln "Finished.")))))
 
 (let* ([the-file (command-line #:program "runner.rkt" #:args (filename) filename)])
-  (run-file the-file 5 20))
+  (run-file the-file))
