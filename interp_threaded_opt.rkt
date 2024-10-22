@@ -169,7 +169,7 @@
   (match prog
     [(cons (loop (list (shift x))) rst)
      #:when (member x '(1 2 4 8 -1 -2 -4 -8))
-     (eprintf "scan: ~a\n" x)
+     ;; (eprintf "scan: ~a\n" x)
      (cons (search-0 x) (opt/0-scan rst))]
     #;[(cons (loop (list (shift x))) rst)
      (eprintf "missed: ~a\n" (shift x))

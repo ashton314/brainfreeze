@@ -206,13 +206,18 @@
 ;; 	add	x21, x21, x22
 
 (define (emit-search0-neg-asm stride)
-  (let ([loop-top-label (fresh-label)])
+  (let ([loop-top-label (fresh-label)]
+        [loop-bottom-label (fresh-label)])
+    (display (i/load-ptr 'w11))
+    (display (i/subs 'w11 'w11 (i/i 0)))
+    (display (i/branch-eq loop-bottom-label))
+
     (display (i/adrp 'x22 "lIDX@PAGE" "\t; search-0"))
     (display (i/ldr 'q0 'x22 "lIDX@PAGEOFF" "\t; v0 = idx vector (rev)"))
     (display (i/adrp 'x22 (format "~a@PAGE" (stride-mask-label stride))))
     (display (i/ldr 'q3 'x22 (format "~a@PAGEOFF" (stride-mask-label stride)) "\t; v3 = stride mask"))
     (display (i/op2 "movi.2d" 'v1 (i/i 0) "\t; v1 = zero vect"))
-    (display (i/label loop-top-label))
+    (display (i/label loop-top-label))  ; start of scan loop
     (display (i/sub 'x21 'x21 (i/i 16)))
     (display (i/add 'x22 'x20 'x21))
     (display (i/op2 "ld1" "{v2.16b}" "[x22]" "\t; v2 = tape"))
@@ -223,7 +228,8 @@
     (display (i/op2 "umov" 'w22 "v5.b[0]"))
     (display (i/subs 'w11 'w22 (i/i 255))) ; not found
     (display (i/branch-eq loop-top-label))
-    (display (i/add 'x21 'x21 'x22))))
+    (display (i/add 'x21 'x21 'x22))
+    (display (i/label loop-bottom-label))))
 
 ;; for other strides, use the LCM between the stride and 16 to figure
 ;; out how many stride blocks we need.
@@ -231,11 +237,11 @@
   (case stride
     [(-1 1) 'lSTRIDE1]
     [(2) 'lSTRIDE2]
-    [(-2) 'lSTRIDEM2]
+    [(-2) 'lSTRIDE2]
     [(4) 'lSTRIDE4]
-    [(-4) 'lSTRIDEM4]
+    [(-4) 'lSTRIDE4]
     [(8) 'lSTRIDE8]
-    [(-8) 'lSTRIDEM8]
+    [(-8) 'lSTRIDE8]
     [(16) 'lSTRIDE16]))
 
 (define (stride-negmask stride)
@@ -280,32 +286,15 @@ lIDX:
 	.byte	13                              ; 0xd
 	.byte	14                              ; 0xe
 	.byte	15                              ; 0xf
-lIDXREV:
-	.byte	15                              ; 0xf
-	.byte	14                              ; 0xe
-	.byte	13                              ; 0xd
-	.byte	12                              ; 0xc
-	.byte	11                              ; 0xb
-	.byte	10                              ; 0xa
-	.byte	9                               ; 0x9
-	.byte	8                               ; 0x8
-	.byte	7                               ; 0x7
-	.byte	6                               ; 0x6
-	.byte	5                               ; 0x5
-	.byte	4                               ; 0x4
-	.byte	3                               ; 0x3
-	.byte	2                               ; 0x2
-	.byte	1                               ; 0x1
-	.byte	0                               ; 0x0
 "
           (stride-mask 1)
           (stride-mask 2)
           (stride-mask 4)
           (stride-mask 8)
           (stride-mask 16)
-          (stride-negmask -2)
-          (stride-negmask -4)
-          (stride-negmask -8)
+          ;; (stride-negmask -2)
+          ;; (stride-negmask -4)
+          ;; (stride-negmask -8)
           '("	.section	__TEXT,__text,regular,pure_instructions
 	.globl	_main                           ; -- Begin function main
 	.p2align	2
