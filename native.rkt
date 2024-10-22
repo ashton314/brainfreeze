@@ -242,7 +242,20 @@ _main:                                  ; @main
 ")))
 
 (define postlude
-  "	mov	w0, #0                          ; =0x0
+  "	; print out end pointer
+	sub sp, sp, #32
+	stp x29, x30, [sp, #16]
+	add x29, sp, #16
+	sub x21, x21, #4095
+	sub x21, x21, #905
+	str x21, [sp]
+	adrp	x0, finish.str@PAGE
+	add	x0, x0, finish.str@PAGEOFF
+	bl _printf
+	add sp, sp, #32
+	; end print out end pointer
+
+	mov	w0, #0                          ; =0x0
 	ldp	x29, x30, [sp, #16]             ; 16-byte Folded Reload
 	add	sp, sp, #32
 	ret
@@ -256,6 +269,9 @@ _ptr:
 
 .zerofill __DATA,__bss,_tape,100000,0    ; @tape
 	.section	__TEXT,__cstring,cstring_literals
+
+finish.str:
+	.asciz \"Finished. Pointer: %d\n\"
 
 .subsections_via_symbols
 ")

@@ -104,12 +104,11 @@
              opt/useless
              combine-instrs))
 
-#;
 (define (optimize-no-loop prog)
   (opt-chain (prog)
-             opt/0-scan
+             ;; opt/0-scan
              opt/zero-add->set
-             ;; opt/basic-loop
+             opt/basic-loop
              opt/zero-out
              opt/add
              opt/useless
@@ -171,6 +170,9 @@
     [(cons (loop (list (shift x))) rst)
      #:when (member x '(1 2 4 8 16))
      (cons (search-0 x) (opt/0-scan rst))]
+    #;[(cons (loop (list (shift x))) rst)
+     ;; (eprintf "missed: ~a\n" (shift x))
+     (cons (car prog) (opt/0-scan rst))]
     [(cons (loop body) rst)
      (cons (loop (opt/0-scan body)) (opt/0-scan rst))]
     [(cons hd rst)
