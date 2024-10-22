@@ -57,6 +57,8 @@
   (format "\tadd\t~a, ~a, ~a~a\n" dest arg1 arg2 comment))
 (define (i/subs dest arg1 arg2 [comment ""])
   (format "\tsubs\t~a, ~a, ~a~a\n" dest arg1 arg2 comment))
+(define (i/sub dest arg1 arg2 [comment ""])
+  (format "\tsub\t~a, ~a, ~a~a\n" dest arg1 arg2 comment))
 (define (i/mul dest arg1 arg2 [comment ""])
   (format "\tmul\t~a, ~a, ~a~a\n" dest arg1 arg2 comment))
 
@@ -116,7 +118,9 @@
       (display (i/store-ptr 'wzr))                ; zero out current cell
       (emit-asm instr-rst)]
      [(search-0 stride)
-      (emit-search0-asm stride)
+      (if (positive? stride)
+          (emit-search0-pos-asm stride)
+          (emit-search0-neg-asm stride))
       (emit-asm instr-rst)]
      [(set-cell value)
       (display (i/movi 'w11 value (format "\t;set ~a" value)))
@@ -145,20 +149,22 @@
         (display (i/label end-label)))
       (emit-asm instr-rst)])])
 
-    ;; adrp    x27, lCPI0_0@PAGE
-    ;; ldr q0, [x27, lCPI0_0@PAGEOFF] ;v0 = idx
-    ;; adrp    x27, lCPI1_7@PAGE
-    ;; ldr q3, [x27, lCPI1_7@PAGEOFF] ;v3 = stride
-    ;; movi.2d v1, #0                 ;v1 = zeros
-    ;; add x24, x20, x21
-    ;; ld1 {v2.16b}, [x24]            ;v2 = tape
-    ;; cmeq.16b    v2, v2, v1         ;v2 = tape vec_eq zeros
-    ;; ;; and.16b v2, v2, v3             ;stride mask
-    ;; orn.16b v0, v0, v2             ;v0 = idx or !(tape == zeros)
-    ;; uminv.16b   b1, v0
-    ;; umov        w21, v1.b[0]
+;; positive stride:
+;;
+;; adrp    x27, lCPI0_0@PAGE
+;; ldr q0, [x27, lCPI0_0@PAGEOFF] ;v0 = idx
+;; adrp    x27, lCPI1_7@PAGE
+;; ldr q3, [x27, lCPI1_7@PAGEOFF] ;v3 = stride
+;; movi.2d v1, #0                 ;v1 = zeros
+;; add x24, x20, x21
+;; ld1 {v2.16b}, [x24]            ;v2 = tape
+;; cmeq.16b    v2, v2, v1         ;v2 = tape vec_eq zeros
+;; ;; and.16b v2, v2, v3             ;stride mask
+;; orn.16b v0, v0, v2             ;v0 = idx or !(tape == zeros)
+;; uminv.16b   b1, v0
+;; umov        w21, v1.b[0]
 
-(define (emit-search0-asm stride)
+(define (emit-search0-pos-asm stride)
   (let ([loop-top-label (fresh-label)])
     (display (i/adrp 'x22 "lIDX@PAGE" "\t; search-0"))
     (display (i/ldr 'q0 'x22 "lIDX@PAGEOFF" "\t; v0 = idx vector"))
@@ -179,15 +185,68 @@
     (display (i/branch-eq loop-top-label))
     (display (i/add 'x21 'x21 'x22))))
 
+;; negative stride:
+;;
+;; 	adrp	x22, lIDX@PAGE	; search-0
+;; 	ldr	q0, [x22, lIDX@PAGEOFF]	; v0 = idx vector
+;; 	adrp	x22, lSTRIDE1@PAGE
+;; 	ldr	q3, [x22, lSTRIDE1@PAGEOFF]	; v3 = stride mask
+;; 	movi.2d	v1, #0	; v1 = zero vect
+;; LBB0_9:
+;; 	sub	x21, x21, #16
+;; 	add	x22, x20, x21
+;; 	ld1	{v2.16b}, [x22]	; v2 = tape
+;; 	cmeq.16b	v4, v2, v1	; v4 = tape == zeros
+;; 	and.16b	v4, v4, v3	; mask with stride
+;; 	orn.16b	v4, v0, v4	; idx or !(tape == zeros)
+;; 	smaxv.16b	b5, v4	; find biggest idx
+;; 	umov	w22, v5.b[0]
+;; 	subs	w11, w22, #255
+;; 	beq	LBB0_9
+;; 	add	x21, x21, x22
+
+(define (emit-search0-neg-asm stride)
+  (let ([loop-top-label (fresh-label)])
+    (display (i/adrp 'x22 "lIDXREV@PAGE" "\t; search-0"))
+    (display (i/ldr 'q0 'x22 "lIDXREV@PAGEOFF" "\t; v0 = idx vector (rev)"))
+    (display (i/adrp 'x22 (format "~a@PAGE" (stride-mask-label stride))))
+    (display (i/ldr 'q3 'x22 (format "~a@PAGEOFF" (stride-mask-label stride)) "\t; v3 = stride mask"))
+    (display (i/op2 "movi.2d" 'v1 (i/i 0) "\t; v1 = zero vect"))
+    (display (i/label loop-top-label))
+    (display (i/sub 'x21 'x21 (i/i 16)))
+    (display (i/add 'x22 'x20 'x21))
+    (display (i/op2 "ld1" "{v2.16b}" "[x22]" "\t; v2 = tape"))
+    (display (i/op3 "cmeq.16b" 'v4 'v2 'v1 "\t; v4 = tape == zeros"))
+    (display (i/op3 "and.16b" 'v4 'v4 'v3 "\t; mask with stride"))
+    (display (i/op3 "orn.16b" 'v4 'v0 'v4 "\t; idx or !(tape == zeros)"))
+    (display (i/op2 "smaxv.16b" 'b5 'v4 "\t; find smallest idx"))
+    (display (i/op2 "umov" 'w22 "v5.b[0]"))
+    (display (i/subs 'w11 'w22 (i/i 255))) ; not found
+    (display (i/branch-eq loop-top-label))
+    (display (i/add 'x21 'x21 'x22))))
+
 ;; for other strides, use the LCM between the stride and 16 to figure
 ;; out how many stride blocks we need.
 (define (stride-mask-label stride)
   (case stride
-    [(1) 'lSTRIDE1]
+    [(-1 1) 'lSTRIDE1]
     [(2) 'lSTRIDE2]
+    [(-2) 'lSTRIDEM2]
     [(4) 'lSTRIDE4]
+    [(-4) 'lSTRIDEM4]
     [(8) 'lSTRIDE8]
+    [(-8) 'lSTRIDEM8]
     [(16) 'lSTRIDE16]))
+
+(define (stride-negmask stride)
+  (when (not (member stride '(-2 -4 -8)))
+    (error "can't handle stride ~a" stride))
+  (let ([label (string->symbol (format "lSTRIDEM~a" (abs stride)))])
+    (string-append*
+     (i/label label)
+     (for/list ([i (inclusive-range 15 0 -1)])
+       (format "\t.byte\t~a\n"
+               (if (zero? (remainder i stride)) "0xff" "0x0"))))))
 
 (define (stride-mask stride)
   (when (not (member stride '(1 2 4 8 16)))
@@ -221,12 +280,32 @@ lIDX:
 	.byte	13                              ; 0xd
 	.byte	14                              ; 0xe
 	.byte	15                              ; 0xf
+lIDXREV:
+	.byte	15                              ; 0xf
+	.byte	14                              ; 0xe
+	.byte	13                              ; 0xd
+	.byte	12                              ; 0xc
+	.byte	11                              ; 0xb
+	.byte	10                              ; 0xa
+	.byte	9                               ; 0x9
+	.byte	8                               ; 0x8
+	.byte	7                               ; 0x7
+	.byte	6                               ; 0x6
+	.byte	5                               ; 0x5
+	.byte	4                               ; 0x4
+	.byte	3                               ; 0x3
+	.byte	2                               ; 0x2
+	.byte	1                               ; 0x1
+	.byte	0                               ; 0x0
 "
           (stride-mask 1)
           (stride-mask 2)
           (stride-mask 4)
           (stride-mask 8)
           (stride-mask 16)
+          (stride-negmask -2)
+          (stride-negmask -4)
+          (stride-negmask -8)
           '("	.section	__TEXT,__text,regular,pure_instructions
 	.globl	_main                           ; -- Begin function main
 	.p2align	2

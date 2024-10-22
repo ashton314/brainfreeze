@@ -168,10 +168,10 @@
 (define (opt/0-scan prog)
   (match prog
     [(cons (loop (list (shift x))) rst)
-     #:when (member x '(1 2 4 8 16))
+     #:when (member x '(1 2 4 8 -1 -2 -4 -8))
      (cons (search-0 x) (opt/0-scan rst))]
     #;[(cons (loop (list (shift x))) rst)
-     ;; (eprintf "missed: ~a\n" (shift x))
+     (eprintf "missed: ~a\n" (shift x))
      (cons (car prog) (opt/0-scan rst))]
     [(cons (loop body) rst)
      (cons (loop (opt/0-scan body)) (opt/0-scan rst))]
