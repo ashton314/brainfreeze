@@ -207,8 +207,8 @@
 
 (define (emit-search0-neg-asm stride)
   (let ([loop-top-label (fresh-label)])
-    (display (i/adrp 'x22 "lIDXREV@PAGE" "\t; search-0"))
-    (display (i/ldr 'q0 'x22 "lIDXREV@PAGEOFF" "\t; v0 = idx vector (rev)"))
+    (display (i/adrp 'x22 "lIDX@PAGE" "\t; search-0"))
+    (display (i/ldr 'q0 'x22 "lIDX@PAGEOFF" "\t; v0 = idx vector (rev)"))
     (display (i/adrp 'x22 (format "~a@PAGE" (stride-mask-label stride))))
     (display (i/ldr 'q3 'x22 (format "~a@PAGEOFF" (stride-mask-label stride)) "\t; v3 = stride mask"))
     (display (i/op2 "movi.2d" 'v1 (i/i 0) "\t; v1 = zero vect"))
