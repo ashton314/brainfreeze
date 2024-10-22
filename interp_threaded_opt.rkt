@@ -19,6 +19,7 @@
 (struct bf-read () #:transparent)
 (struct add-cell-0 (dest) #:transparent) ; zero current cell; add value to another cell
 (struct mult-block-0 (body) #:transparent) ; cells in body + current * cell count; current zeroed
+(struct search-0 (stride) #:transparent)
 
 (define (tree-size thingy)
   (match thingy
@@ -27,6 +28,7 @@
     [(add _) 1]
     [(add-cell-0 _) 1]
     [(mult-block-0 body) (length (hash-keys body))]
+    [(search-0 _) 1]
     [(shift _) 1]
     [(set-cell _) 1]
     [(bf-write) 1]
@@ -39,6 +41,7 @@
     [(add _) 3]
     [(add-cell-0 _) 7]
     [(mult-block-0 body) (* 2 (length (hash-keys body)))]
+    [(search-0 _) 19]
     [(shift _) 1]
     [(set-cell _) 2]
     [(bf-write) 2]
@@ -93,6 +96,7 @@
 
 (define (optimize prog)
   (opt-chain (prog)
+             opt/0-scan
              opt/zero-add->set
              opt/basic-loop
              opt/zero-out
@@ -100,8 +104,10 @@
              opt/useless
              combine-instrs))
 
+#;
 (define (optimize-no-loop prog)
   (opt-chain (prog)
+             opt/0-scan
              opt/zero-add->set
              ;; opt/basic-loop
              opt/zero-out
@@ -159,6 +165,17 @@
     [(list hd rst ...)
      (cons hd (opt/copy rst))]
     [_ prog]))
+
+(define (opt/0-scan prog)
+  (match prog
+    [(cons (loop (list (shift x))) rst)
+     #:when (member x '(1 2 4 8 16))
+     (cons (search-0 x) (opt/0-scan rst))]
+    [(cons (loop body) rst)
+     (cons (loop (opt/0-scan body)) (opt/0-scan rst))]
+    [(cons hd rst)
+     (cons hd (opt/0-scan rst))]
+    ['() prog]))
 
 (define (opt/add prog)
   (match prog

@@ -2,61 +2,6 @@
 
 (require "interp_threaded_opt.rkt")
 
-(define prelude
-  "	.section	__TEXT,__text,regular,pure_instructions
-	.build_version macos, 14, 0	sdk_version 15, 0
-	.section	__TEXT,__literal16,16byte_literals
-	.p2align	4, 0x0
-lIDX:
-	.byte	0                               ; 0x0
-	.byte	1                               ; 0x1
-	.byte	2                               ; 0x2
-	.byte	3                               ; 0x3
-	.byte	4                               ; 0x4
-	.byte	5                               ; 0x5
-	.byte	6                               ; 0x6
-	.byte	7                               ; 0x7
-	.byte	8                               ; 0x8
-	.byte	9                               ; 0x9
-	.byte	10                              ; 0xa
-	.byte	11                              ; 0xb
-	.byte	12                              ; 0xc
-	.byte	13                              ; 0xd
-	.byte	14                              ; 0xe
-	.byte	15                              ; 0xf
-	.section	__TEXT,__text,regular,pure_instructions
-	.globl	_main                           ; -- Begin function main
-	.p2align	2
-_main:                                  ; @main
-	.cfi_startproc
-	sub	sp, sp, #32
-	stp	x29, x30, [sp, #16]             ; 16-byte Folded Spill
-	add	x29, sp, #16
-	adrp   x22, _tape@PAGE
-	add	x20, x22, _tape@PAGEOFF
-	adrp	x22, _ptr@PAGE
-	ldrsw	x21, [x22, _ptr@PAGEOFF]
-")
-
-(define postlude
-  "	mov	w0, #0                          ; =0x0
-	ldp	x29, x30, [sp, #16]             ; 16-byte Folded Reload
-	add	sp, sp, #32
-	ret
-	.cfi_endproc
-                                        ; -- End function
-	.section	__DATA,__data
-	.globl	_ptr                            ; @ptr
-	.p2align	2, 0x0
-_ptr:
-	.long	5000
-
-.zerofill __DATA,__bss,_tape,100000,0    ; @tape
-	.section	__TEXT,__cstring,cstring_literals
-
-.subsections_via_symbols
-")
-
 (define (compile-to-asm program)
   (displayln prelude)
   (emit-asm program)
@@ -80,6 +25,16 @@ _ptr:
       (begin0
           (format "LBB0_~a" counter)
         (set! counter (+ 1 counter))))))
+
+(define (i/op2 op arg1 arg2 [comment ""])
+  (format "\t~a\t~a, ~a~a\n" op arg1 arg2 comment))
+(define (i/op3 op arg1 arg2 arg3 [comment ""])
+  (format "\t~a\t~a, ~a, ~a~a\n" op arg1 arg2 arg3 comment))
+
+(define (i/adrp xsrc label [comment ""])
+  (format "\tadrp\t~a, ~a~a\n" xsrc label comment))
+(define (i/ldr src d1 d2 [comment ""])
+  (format "\tldr\t~a, [~a, ~a]~a\n" src d1 d2 comment))
 
 (define (i/load src d1 d2 [comment ""])
   (format "\tldrsb\t~a, [~a, ~a]~a\n" src d1 d2 comment))
@@ -160,6 +115,9 @@ _ptr:
         (display (i/store1 'w11 'x24)))           ; write that back
       (display (i/store-ptr 'wzr))                ; zero out current cell
       (emit-asm instr-rst)]
+     [(search-0 stride)
+      (emit-search0-asm stride)
+      (emit-asm instr-rst)]
      [(set-cell value)
       (display (i/movi 'w11 value (format "\t;set ~a" value)))
       (display (i/store-ptr 'w11))
@@ -200,25 +158,108 @@ _ptr:
     ;; uminv.16b   b1, v0
     ;; umov        w21, v1.b[0]
 
-(define (emit-stride-asm stride)
-  42)
+(define (emit-search0-asm stride)
+  (let ([loop-top-label (fresh-label)])
+    (display (i/adrp 'x22 "lIDX@PAGE" "\t; search-0"))
+    (display (i/ldr 'q0 'x22 "lIDX@PAGEOFF" "\t; v0 = idx vector"))
+    (display (i/adrp 'x22 (format "~a@PAGE" (stride-mask-label stride))))
+    (display (i/ldr 'q3 'x22 (format "~a@PAGEOFF" (stride-mask-label stride)) "\t; v3 = stride mask"))
+    (display (i/op2 "movi.2d" 'v1 (i/i 0) "\t; v1 = zero vect"))
+    (display (i/subs 'x21 'x21 (i/i 16)))
+    (display (i/label loop-top-label))
+    (display (i/add 'x21 'x21 (i/i 16)))
+    (display (i/add 'x22 'x20 'x21))
+    (display (i/op2 "ld1" "{v2.16b}" "[x22]" "\t; v2 = tape"))
+    (display (i/op3 "cmeq.16b" 'v4 'v2 'v1 "\t; v4 = tape == zeros"))
+    (display (i/op3 "and.16b" 'v4 'v4 'v3 "\t; mask with stride"))
+    (display (i/op3 "orn.16b" 'v4 'v0 'v4 "\t; idx or !(tape == zeros)"))
+    (display (i/op2 "uminv.16b" 'b5 'v4 "\t; find smallest idx"))
+    (display (i/op2 "umov" 'w22 "v5.b[0]"))
+    (display (i/subs 'w11 'w22 (i/i 255))) ; not found
+    (display (i/branch-eq loop-top-label))
+    (display (i/add 'x21 'x21 'x11))))
 
-(define (get-stride-mask-labels stride)
+;; for other strides, use the LCM between the stride and 16 to figure
+;; out how many stride blocks we need.
+(define (stride-mask-label stride)
   (case stride
-    [(1) '(lSTRIDE1)]
-    [(2) '(lSTRIDE2)]
-    [(4) '(lSTRIDE4)]
-    [(8) '(lSTRIDE8)]
-    [(16) '(lSTRIDE16)]))
+    [(1) 'lSTRIDE1]
+    [(2) 'lSTRIDE2]
+    [(4) 'lSTRIDE4]
+    [(8) 'lSTRIDE8]
+    [(16) 'lSTRIDE16]))
 
-(define (emit-stride-masks stride)
+(define (stride-mask stride)
   (when (not (member stride '(1 2 4 8 16)))
     (error "can't handle stride ~a" stride))
   (let ([label (string->symbol (format "lSTRIDE~a" stride))])
-    (display (i/label label))
-    (for ([i (range 0 16)])
-      (display (format "\t.byte\t~a\n"
-                       (if (zero? (remainder i stride)) "0xff" "0x0"))))))
+    (string-append*
+     (i/label label)
+     (for/list ([i (range 0 16)])
+       (format "\t.byte\t~a\n"
+               (if (zero? (remainder i stride)) "0xff" "0x0"))))))
+
+(define prelude
+  (string-append* "	.section	__TEXT,__text,regular,pure_instructions
+	.build_version macos, 14, 0	sdk_version 15, 0
+	.section	__TEXT,__literal16,16byte_literals
+	.p2align	4, 0x0
+lIDX:
+	.byte	0                               ; 0x0
+	.byte	1                               ; 0x1
+	.byte	2                               ; 0x2
+	.byte	3                               ; 0x3
+	.byte	4                               ; 0x4
+	.byte	5                               ; 0x5
+	.byte	6                               ; 0x6
+	.byte	7                               ; 0x7
+	.byte	8                               ; 0x8
+	.byte	9                               ; 0x9
+	.byte	10                              ; 0xa
+	.byte	11                              ; 0xb
+	.byte	12                              ; 0xc
+	.byte	13                              ; 0xd
+	.byte	14                              ; 0xe
+	.byte	15                              ; 0xf
+"
+          (stride-mask 1)
+          (stride-mask 2)
+          (stride-mask 4)
+          (stride-mask 8)
+          (stride-mask 16)
+          '("	.section	__TEXT,__text,regular,pure_instructions
+	.globl	_main                           ; -- Begin function main
+	.p2align	2
+_main:                                  ; @main
+	.cfi_startproc
+	sub	sp, sp, #32
+	stp	x29, x30, [sp, #16]             ; 16-byte Folded Spill
+	add	x29, sp, #16
+	adrp   x22, _tape@PAGE
+	add	x20, x22, _tape@PAGEOFF
+	adrp	x22, _ptr@PAGE
+	ldrsw	x21, [x22, _ptr@PAGEOFF]
+")))
+
+(define postlude
+  "	mov	w0, #0                          ; =0x0
+	ldp	x29, x30, [sp, #16]             ; 16-byte Folded Reload
+	add	sp, sp, #32
+	ret
+	.cfi_endproc
+                                        ; -- End function
+	.section	__DATA,__data
+	.globl	_ptr                            ; @ptr
+	.p2align	2, 0x0
+_ptr:
+	.long	5000
+
+.zerofill __DATA,__bss,_tape,100000,0    ; @tape
+	.section	__TEXT,__cstring,cstring_literals
+
+.subsections_via_symbols
+")
+
 
 (define (compile-file filename)
   (displayln "Parsing..." (current-error-port))
