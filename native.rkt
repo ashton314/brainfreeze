@@ -177,7 +177,7 @@
     (display (i/op2 "umov" 'w22 "v5.b[0]"))
     (display (i/subs 'w11 'w22 (i/i 255))) ; not found
     (display (i/branch-eq loop-top-label))
-    (display (i/add 'x21 'x21 'x11))))
+    (display (i/add 'x21 'x21 'x22))))
 
 ;; for other strides, use the LCM between the stride and 16 to figure
 ;; out how many stride blocks we need.
@@ -243,16 +243,16 @@ _main:                                  ; @main
 
 (define postlude
   "	; print out end pointer
-	sub sp, sp, #32
-	stp x29, x30, [sp, #16]
-	add x29, sp, #16
-	sub x21, x21, #4095
-	sub x21, x21, #905
-	str x21, [sp]
-	adrp	x0, finish.str@PAGE
-	add	x0, x0, finish.str@PAGEOFF
-	bl _printf
-	add sp, sp, #32
+	; sub sp, sp, #32
+	; stp x29, x30, [sp, #16]
+	; add x29, sp, #16
+	; sub x21, x21, #4095
+	; sub x21, x21, #905
+	; str x21, [sp]
+	; adrp	x0, finish.str@PAGE
+	; add	x0, x0, finish.str@PAGEOFF
+	; bl _printf
+	; add sp, sp, #32
 	; end print out end pointer
 
 	mov	w0, #0                          ; =0x0
