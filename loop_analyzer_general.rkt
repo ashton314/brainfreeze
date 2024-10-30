@@ -1,6 +1,8 @@
 #lang racket
 
-(provide poly2-func)
+(provide poly2-func
+         nice-poly?
+         nice-soln?)
 
 (require rascas)
 (require math/matrix)
@@ -45,10 +47,36 @@
           (let ([coeff-soln (matrix->list (matrix-solve m-mat b-mat))])
             (values v (smart-simplify (cons '+ (map * coeff-soln eqns-2ord))))))))))
 
+(define (all? lst)
+  (match lst
+    ['() #t]
+    [(cons h t) (and h (all? t))]))
+
+(define (nice-poly? expr)
+  ;; Heuristics of whether or not we want to use the resulting
+  ;; polynomial to optimize
+  (all? (map (λ (coeff) (and (integer? coeff)
+                             (< coeff 1024)))
+             (filter number? (flatten expr)))))
+
+(define (nice-soln? var-map)
+  (for/and ([(_var eqn) var-map])
+    (nice-poly? eqn)))
+
+#;
 (define (f1 x y z w)
   (for ([i (range w)])
     (set! z (+ z x))
     (set! y (+ y x))
+    (set! x y)
+    (set! y 0))
+  (list x y z w))
+
+#;
+(define (f2 x y z w)
+  (for ([i (range w)])
+    (set! z (+ z x))
+    (set! y (+ y x z))
     (set! x y)
     (set! y 0))
   (list x y z w))
