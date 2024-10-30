@@ -41,6 +41,13 @@
                      (map (λ (term) (substitute/dict term subst-map)) vvv)
                      ;; value for this term
                      (list f-of-p-var))))])
+    ;; So now I've got 15 equations like
+    ;;
+    ;;     c₀1 + c₁w + c₂w² + c₃x + c₄xw + ... = f(random-point)[var-of-interest]
+    ;;     ...
+    ;;
+    ;; for *every* variable. I need 15 equations to find a solution to
+    ;; the coefficients, and I need an equation for every variable.
     (let ([m (list->matrix (length vvv) (length vvv) (flatten m))]
           [b (->col-matrix (list->matrix 1 (length (flatten b)) (flatten b)))])
       (let ([coeff-soln (matrix->list (matrix-solve m b))])
