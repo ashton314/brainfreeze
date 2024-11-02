@@ -295,6 +295,8 @@
                [state (make-vector (* 3 state-range))]
 
                ;; compile the loop for interpretation
+               ;; we don't do any optimizations here; we must be
+               ;; careful not to recursively invoke this optimization
                [loop-prog-c (compile (list loop-prog))]
                [loop-fn (λ point
                           ;; set up state with point

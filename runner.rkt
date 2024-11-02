@@ -10,8 +10,10 @@
       (printf "Optimized. New program is ~a instructions.\n" (tree-size optimized))
       (let ([compiled (compile optimized)])
         (let ([start-time (current-inexact-milliseconds)])
+          (printf "start time: ~a\n" start-time)
           (let-values ([(sp _st) (compiled start (make-vector size))])
             (printf "Finished. Pointer: ~a\n" (- sp 5000))
+            (printf "end time: ~a\n" start-time)
             (printf "Duration: ~a ms\n" (- (current-inexact-milliseconds) start-time))))))))
 
 (let* ([the-file (command-line #:program "runner.rkt" #:args (filename) filename)])
