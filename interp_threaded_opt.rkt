@@ -21,7 +21,7 @@
 (struct add-cell-0 (dest) #:transparent)   ; zero current cell; add value to another cell
 (struct mult-block-0 (body) #:transparent) ; cells in body + current * cell count; current zeroed
 (struct search-0 (stride) #:transparent)   ; scan for zero
-(struct poly-block (var->idx idx->poly) #:transparent)
+(struct poly-block (var->idx idx->poly orig) #:transparent)
 
 (define (tree-size thingy)
   (match thingy
@@ -30,7 +30,7 @@
     [(add _) 1]
     [(add-cell-0 _) 1]
     [(mult-block-0 body) (length (hash-keys body))]
-    [(poly-block _var-idx var-poly) (length (hash-keys var-poly))]
+    [(poly-block _var-idx var-poly _) (length (hash-keys var-poly))]
     [(search-0 _) 1]
     [(shift _) 1]
     [(set-cell _) 1]
@@ -44,7 +44,7 @@
     [(add _) 3]
     [(add-cell-0 _) 7]
     [(mult-block-0 body) (* 2 (length (hash-keys body)))]
-    [(poly-block _var-idx var-poly) (* 3 (length (hash-keys var-poly)))]
+    [(poly-block _var-idx var-poly _) (* 3 (length (hash-keys var-poly)))]
     [(search-0 _) 19]
     [(shift _) 1]
     [(set-cell _) 2]
@@ -97,8 +97,6 @@
      #'(opt-pass opt-name prog)]
     [(_ (prog) opt-name opt-names ...)
      #'(opt-pass opt-name (opt-chain (prog) opt-names ...))]))
-
-(define *2nd-order-loops-left* 0)
 
 (define (optimize prog)
   (opt-chain (prog)
@@ -226,10 +224,8 @@
                 (eqv? -1 (hash-ref state 0 'nothing)))
            ;; begin optimizing
            (let-values ([(var-map poly-map) (discover-poly prog)])
-             (if (and var-map (< 0 *2nd-order-loops-left*))
-                 (begin
-                   (set! *2nd-order-loops-left* (- *2nd-order-loops-left* 1))
-                   (poly-block var-map poly-map))
+             (if var-map
+                 (poly-block var-map poly-map prog)
                  (loop (map opt/2nd-order-loop body))))
            (loop (map opt/2nd-order-loop body))))]
     [(list rst ...) (map opt/2nd-order-loop rst)]
@@ -314,16 +310,10 @@
                                 (vector-ref tape (+ i state-range))))))]
                [poly (poly2-func loop-fn vars)])
           (if (nice-soln? poly)
-              (begin
-                (printf "Loop:\n~a\n" loop-prog)
-                (printf "got a nice soln: ~a\n" poly)
-                (printf "var↦idx: ~a\n" var-idx)
-                (values (make-hash (map cons vars idxs))
-                        (for/hash ([(k v) poly]) ; go from var ↦ poly to idx ↦ poly
-                          (values (hash-ref var-idx k) v))))
-              (begin
-                (printf "got an ugly soln\n")
-                (values #f loop-prog))))
+              (values (make-hash (map cons vars idxs))
+                      (for/hash ([(k v) poly]) ; go from var ↦ poly to idx ↦ poly
+                        (values (hash-ref var-idx k) v)))
+              (values #f loop-prog)))
         (values #f loop-prog))))
 
 (define (opt/basic-loop prog)
@@ -412,16 +402,18 @@
                 [_ (vector-set! st (+ sp k) (+ (vector-ref st (+ sp k)) (* cur v)))])))
           (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
-       [(poly-block var->idx idx->poly)
+       [(poly-block var->idx idx->poly orig)
         (let ([idx->poly-clos
                (for/hash ([(idx poly) idx->poly])
                  (values idx (comp-poly poly var->idx)))])
           (λ (sp st)
-            (let ([old-vals (for/hash ([i (hash-values var->idx)])
-                              (values i (vector-ref st (+ sp i))))])
-              (for ([(idx poly) idx->poly-clos])
-                (vector-set! st (+ sp idx) (poly old-vals)))
-              (rest-progn sp st))))]
+            (if (zero? (vector-ref st sp))
+                (rest-progn sp st)
+                (let-values ([(old-vals) (for/hash ([i (hash-values var->idx)])
+                                           (values i (vector-ref st (+ sp i))))])
+                  (for ([(idx poly) idx->poly-clos])
+                    (vector-set! st (+ sp idx) (poly old-vals)))
+                  (rest-progn sp st)))))]
        [(search-0 stride)
         (letrec ([the-loop (λ (sp st)
                              (if (zero? (vector-ref st sp))
