@@ -98,6 +98,8 @@
     [(_ (prog) opt-name opt-names ...)
      #'(opt-pass opt-name (opt-chain (prog) opt-names ...))]))
 
+(define *2nd-order-loops-left* 0)
+
 (define (optimize prog)
   (opt-chain (prog)
              opt/0-scan
@@ -224,8 +226,10 @@
                 (eqv? -1 (hash-ref state 0 'nothing)))
            ;; begin optimizing
            (let-values ([(var-map poly-map) (discover-poly prog)])
-             (if var-map
-                 (poly-block var-map poly-map)
+             (if (and var-map (< 0 *2nd-order-loops-left*))
+                 (begin
+                   (set! *2nd-order-loops-left* (- *2nd-order-loops-left* 1))
+                   (poly-block var-map poly-map))
                  (loop (map opt/2nd-order-loop body))))
            (loop (map opt/2nd-order-loop body))))]
     [(list rst ...) (map opt/2nd-order-loop rst)]
@@ -295,7 +299,7 @@
                [state (make-vector (* 3 state-range))]
 
                ;; compile the loop for interpretation
-               [loop-prog (compile (list loop-prog))]
+               [loop-prog-c (compile (list loop-prog))]
                [loop-fn (λ point
                           ;; set up state with point
                           (let ([state
@@ -305,13 +309,15 @@
                                    (vector-set! s (+ i state-range) p)
                                    s)])
                             (let-values
-                                ([(_pointer tape) (loop-prog state-range state)])
+                                ([(_pointer tape) (loop-prog-c state-range state)])
                               (for/list ([i idxs])
                                 (vector-ref tape (+ i state-range))))))]
                [poly (poly2-func loop-fn vars)])
           (if (nice-soln? poly)
               (begin
+                (printf "Loop:\n~a\n" loop-prog)
                 (printf "got a nice soln: ~a\n" poly)
+                (printf "var↦idx: ~a\n" var-idx)
                 (values (make-hash (map cons vars idxs))
                         (for/hash ([(k v) poly]) ; go from var ↦ poly to idx ↦ poly
                           (values (hash-ref var-idx k) v))))
