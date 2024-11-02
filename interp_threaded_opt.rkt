@@ -1,6 +1,7 @@
 #lang racket
 
 (require syntax/parse/define)
+(require "loop_analyzer_general.rkt")
 
 (provide (all-defined-out))
 
@@ -17,9 +18,10 @@
 (struct set-cell (value) #:transparent)
 (struct bf-write () #:transparent)
 (struct bf-read () #:transparent)
-(struct add-cell-0 (dest) #:transparent) ; zero current cell; add value to another cell
+(struct add-cell-0 (dest) #:transparent)   ; zero current cell; add value to another cell
 (struct mult-block-0 (body) #:transparent) ; cells in body + current * cell count; current zeroed
-(struct search-0 (stride) #:transparent)
+(struct search-0 (stride) #:transparent)   ; scan for zero
+(struct poly-block (var->idx idx->poly) #:transparent)
 
 (define (tree-size thingy)
   (match thingy
@@ -28,6 +30,7 @@
     [(add _) 1]
     [(add-cell-0 _) 1]
     [(mult-block-0 body) (length (hash-keys body))]
+    [(poly-block _var-idx var-poly) (length (hash-keys var-poly))]
     [(search-0 _) 1]
     [(shift _) 1]
     [(set-cell _) 1]
@@ -41,6 +44,7 @@
     [(add _) 3]
     [(add-cell-0 _) 7]
     [(mult-block-0 body) (* 2 (length (hash-keys body)))]
+    [(poly-block _var-idx var-poly) (* 3 (length (hash-keys var-poly)))]
     [(search-0 _) 19]
     [(shift _) 1]
     [(set-cell _) 2]
@@ -97,6 +101,7 @@
 (define (optimize prog)
   (opt-chain (prog)
              opt/0-scan
+             opt/2nd-order-loop
              opt/zero-add->set
              opt/basic-loop
              opt/zero-out
@@ -209,8 +214,111 @@
      (cons x (opt/useless rst))]
     ['() prog]))
 
-#;
-(define (opt/mult prog))
+(define (opt/2nd-order-loop prog)
+  (match prog
+    [(loop body)
+     (let-values ([(state ptr-amount) (analyze-2nd-order-loop body)])
+       (if (and state
+                (zero? ptr-amount)
+                (not (hash-empty? state))
+                (eqv? -1 (hash-ref state 0 'nothing)))
+           ;; begin optimizing
+           (let-values ([(var-map poly-map) (discover-poly prog)])
+             (if var-map
+                 (poly-block var-map poly-map)
+                 (loop (map opt/2nd-order-loop body))))
+           (loop (map opt/2nd-order-loop body))))]
+    [(list rst ...) (map opt/2nd-order-loop rst)]
+    [_ prog]))
+
+(define (analyze-2nd-order-loop instrs)
+  (let/cc return
+    (for/fold ([state (make-immutable-hash)]
+               [ptr 0])
+              ([i instrs])
+      (match i
+        [(add amount)
+         (values (hash-update state ptr (λ (x) (+ x amount)) 0)
+                 ptr)]
+        [(add-cell-0 dest)
+         (values (hash-update state dest (λ (x) (+ x (hash-ref state ptr 0))) 0)
+                 ptr)]
+        [(set-cell v)
+         (values (hash-set state ptr v)
+                 ptr)]
+        [(shift amount)
+         (values state
+                 (+ ptr amount))]
+        [(mult-block-0 inner-state)
+         ;; just make sure the loop variable doesn't get touched
+         (if (zero? (hash-ref inner-state (- ptr) 0))
+             (values
+              state
+              ptr)
+             (return #f #f))]
+        [_ (return #f #f)]))))
+
+;; returns (values final-idx cell-idxs)
+(define (loop-range prog)
+  (let/cc fail
+    (for/fold ([idxs (set)]
+               [ptr 0])
+              ([i prog])
+      (match i
+        [(loop body)
+         (let-values ([(new-idxs new-ptr) (loop-range body)])
+           (if (and new-ptr (zero? new-ptr))
+               (values (set-union (list->set (set-map new-idxs (λ (x) (+ x ptr))))
+                                  idxs)
+                       ptr)
+               (fail #f #f)))]
+        [(add _) (values (set-add idxs ptr) ptr)]
+        [(shift v) (values idxs (+ ptr v))]
+        [(add-cell-0 dest) (values (set-add (set-add idxs ptr) dest)
+                                   ptr)]
+        [(set-cell _) (values (set-add idxs ptr) ptr)]
+        [(mult-block-0 inner-state)
+         (values (set-union (list->set (map (λ (x) (+ x ptr)) (hash-keys inner-state)))
+                            idxs)
+                 ptr)]))))
+
+(define (discover-poly loop-prog)
+  (let*-values ([(body) (loop-body loop-prog)]
+                [(touched-idxs end-idx) (loop-range body)])
+    (if (and (zero? end-idx) (< (set-count touched-idxs) 100))
+        (let* ([var-idx (for/hash ([i touched-idxs])
+                          (values (string->symbol (format "x~a" i)) i))]
+               [vars (hash-keys var-idx)] ; freeze order here
+               [idxs (map (λ (k) (hash-ref var-idx k)) vars)]
+               [state-range (+ (apply max (hash-values var-idx))
+                               (abs (apply min (hash-values var-idx))))]
+               [state (make-vector (* 3 state-range))]
+
+               ;; compile the loop for interpretation
+               [loop-prog (compile (list loop-prog))]
+               [loop-fn (λ point
+                          ;; set up state with point
+                          (let ([state
+                                 (for/fold ([s state])
+                                           ([p point]
+                                            [i idxs])
+                                   (vector-set! s (+ i state-range) p)
+                                   s)])
+                            (let-values
+                                ([(_pointer tape) (loop-prog state-range state)])
+                              (for/list ([i idxs])
+                                (vector-ref tape (+ i state-range))))))]
+               [poly (poly2-func loop-fn vars)])
+          (if (nice-soln? poly)
+              (begin
+                (printf "got a nice soln: ~a\n" poly)
+                (values (make-hash (map cons vars idxs))
+                        (for/hash ([(k v) poly]) ; go from var ↦ poly to idx ↦ poly
+                          (values (hash-ref var-idx k) v))))
+              (begin
+                (printf "got an ugly soln\n")
+                (values #f loop-prog))))
+        (values #f loop-prog))))
 
 (define (opt/basic-loop prog)
   (match prog
@@ -252,6 +360,18 @@
          #'(eprintf fmt vars ...)
          #'"")]))
 
+(define (comp-poly poly-expr var->idx)
+  (match poly-expr
+    [(? number? n)
+     (λ (old-idx->val) n)]
+    [(? symbol? x)
+     (let ([offset (hash-ref var->idx x)])
+       (λ (old-idx->val) (hash-ref old-idx->val offset)))]
+    [(cons op args)
+     (let ([args_ (map (λ (e) (comp-poly e var->idx)) args)]
+           [op_ (case op [(+) +] [(*) *] [(/) /] [(^) expt] [(-) -])])
+       (λ (old) (apply op_ (map (λ (f) (f old)) args_))))]))
+
 (define/match (compile program)
   [('()) (λ (sp st) (values sp st))]
   [((cons instr instr-rst))
@@ -286,6 +406,22 @@
                 [_ (vector-set! st (+ sp k) (+ (vector-ref st (+ sp k)) (* cur v)))])))
           (dbg "\tsp: ~a\n\tst: ~a\n" sp st)
           (rest-progn sp st))]
+       [(poly-block var->idx idx->poly)
+        (let ([idx->poly-clos
+               (for/hash ([(idx poly) idx->poly])
+                 (values idx (comp-poly poly var->idx)))])
+          (λ (sp st)
+            (let ([old-vals (for/hash ([i (hash-values var->idx)])
+                              (values i (vector-ref st (+ sp i))))])
+              (for ([(idx poly) idx->poly-clos])
+                (vector-set! st (+ sp idx) (poly old-vals)))
+              (rest-progn sp st))))]
+       [(search-0 stride)
+        (letrec ([the-loop (λ (sp st)
+                             (if (zero? (vector-ref st sp))
+                                 (rest-progn sp st)
+                                 (the-loop (+ sp stride) st)))])
+          the-loop)]
        [(shift amount)
         (λ (sp st)
           (dbg "[shift ~a]\n" amount)
@@ -311,3 +447,34 @@
                                    (let-values ([(new-sp new-st) (body-progn sp st)])
                                      (the-loop new-sp new-st))))])
             the-loop))]))])
+
+;; (define p1 (parse-combine "mult.bf"))
+;; (define p2 (opt-chain (p1)
+;;                       opt/0-scan
+;;                       opt/2nd-order-loop
+;;                       opt/zero-add->set
+;;                       opt/basic-loop
+;;                       opt/zero-out
+;;                       opt/add
+;;                       opt/useless
+;;                       combine-instrs))
+
+;; (define l1 (list
+;;             (shift 1)
+;;             (loop (list (shift 1) (add 1) (shift 1) (add 1) (shift -2) (add -1)))
+;;             (shift 1)
+;;             (loop (list (shift -1) (add 1) (shift 1) (add -1)))
+;;             (shift -2)
+;;             (add -1)))
+
+;; (define l2 (opt/basic-loop l1))
+
+;; (define l3 (list
+;;             (shift 1)
+;;             (loop (list (shift -1) (add -1) (shift 1) (shift 1) (add 1) (shift 1) (add 1) (shift -2) (add -1)))
+;;             (shift 1)
+;;             (loop (list (shift -1) (add 1) (shift 1) (add -1)))
+;;             (shift -2)
+;;             (add -1)))
+
+;; (define l4 (opt/basic-loop l3))

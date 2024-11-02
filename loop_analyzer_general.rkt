@@ -56,6 +56,7 @@
   ;; Heuristics of whether or not we want to use the resulting
   ;; polynomial to optimize
   (all? (map (λ (coeff) (and (integer? coeff)
+                             (> coeff -1024)
                              (< coeff 1024)))
              (filter number? (flatten expr)))))
 

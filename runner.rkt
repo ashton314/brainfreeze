@@ -6,7 +6,7 @@
   (displayln "Parsing...")
   (let-values ([(program _) (parse-prog (parse-file filename))])
     (printf "Parsed. Program is ~a instructions. Optimizing...\n" (tree-size program))
-    (let ([optimized (optimize-no-loop program)])
+    (let ([optimized (optimize program)])
       (printf "Optimized. New program is ~a instructions.\n" (tree-size optimized))
       (let ([compiled (compile optimized)])
         (let-values ([(sp _st) (compiled start (make-vector size))])
