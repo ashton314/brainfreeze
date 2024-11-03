@@ -33,7 +33,7 @@
                          (map (λ (term) (substitute/dict term subst-map)) eqns-2ord)
                          (list f-of-p-var))))])
 
-        ;; So now I've got 15 equations like
+        ;; So now I've got (e.g.) 15 equations like
         ;;
         ;;     c₀1 + c₁w + c₂w² + c₃x + c₄xw + ... = f(random-point)[var-of-interest]
         ;;     ...
@@ -63,21 +63,3 @@
 (define (nice-soln? var-map)
   (for/and ([(_var eqn) var-map])
     (nice-poly? eqn)))
-
-#;
-(define (f1 x y z w)
-  (for ([i (range w)])
-    (set! z (+ z x))
-    (set! y (+ y x))
-    (set! x y)
-    (set! y 0))
-  (list x y z w))
-
-#;
-(define (f2 x y z w)
-  (for ([i (range w)])
-    (set! z (+ z x))
-    (set! y (+ y x z))
-    (set! x y)
-    (set! y 0))
-  (list x y z w))

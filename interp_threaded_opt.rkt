@@ -285,7 +285,7 @@
 (define (discover-poly loop-prog)
   (let*-values ([(body) (loop-body loop-prog)]
                 [(touched-idxs end-idx) (loop-range body)])
-    (if (and (zero? end-idx) (< (set-count touched-idxs) 100))
+    (if (and (zero? end-idx) (<= (set-count touched-idxs) 5))
         (let* ([var-idx (for/hash ([i touched-idxs])
                           (values (string->symbol (format "x~a" i)) i))]
                [vars (hash-keys var-idx)] ; freeze order here
@@ -311,6 +311,7 @@
                               (for/list ([i idxs])
                                 (vector-ref tape (+ i state-range))))))]
                [poly (poly2-func loop-fn vars)])
+          (eprintf "number coeffs: ~a; nice? ~a\n" (set-count touched-idxs) (nice-soln? poly))
           (if (nice-soln? poly)
               (values (make-hash (map cons vars idxs))
                       (for/hash ([(k v) poly]) ; go from var ↦ poly to idx ↦ poly

@@ -10,6 +10,7 @@
 ;; Register reservations:
 ;; x0 - reserved for function calls
 ;; x1 - reserved for function calls
+;; x11 - misc
 ;; x20 - tape start
 ;; x21 - data pointer
 ;; x22 - misc
@@ -17,7 +18,11 @@
 ;; x24 - misc
 ;; x25 - misc
 ;; x26 - mult linker
-;; x11 - misc
+;; x27 - poly old0
+;; x28 - poly old1
+;; x29 - poly old2
+;; x30 - poly old3
+;; x31 - poly old4
 
 (define fresh-label
   (let ([counter 0])                    ; let-over-lambda!
@@ -117,6 +122,29 @@
         (display (i/store1 'w11 'x24)))           ; write that back
       (display (i/store-ptr 'wzr))                ; zero out current cell
       (emit-asm instr-rst)]
+     [(poly-block var->idx idx->poly _)
+      (when (< 5 (length (hash-keys var->idx)))
+          (error "Can't optimize polyblocks larger than 5"))
+      ;; load up old values; freeze order here
+      (let* ([vars (hash-keys var->idx)]
+             [idxs (map (λ (k) (hash-ref var->idx k)) vars)]
+             [save-registers '(x26 x27 x28 x29 x30)]
+             [bail-out (fresh-label)])
+        (display (i/load-ptr 'w11 "\t; polyblock"))
+        (display (i/subs 'w11 'w11 (i/i 0)))
+        (display (i/branch-eq bail-out))
+        (for ([v vars]
+              [i idxs]
+              [sav save-registers])
+          (display (i/add 'x22 'x20 'x21 (format "\t; save ~a" v)))
+          (display (i/load sav 'x22 (i/i i))))
+        (for ([i idxs])
+          (display (i/mov 'x23 'xzr))
+          (emit-poly (hash-ref idx->poly i)
+                     (for/hash ([k vars] [s save-registers]) (values k s)))
+          (display (i/store 'w23 'x22 (i/i i))))
+        (display (i/label bail-out))
+        (emit-asm instr-rst))]
      [(search-0 stride)
       (if (positive? stride)
           (emit-search0-pos-asm stride)
@@ -148,6 +176,55 @@
         (display (i/branch start-label))
         (display (i/label end-label)))
       (emit-asm instr-rst)])])
+
+(define (emit-poly poly var->reg)
+  (define (var-or-i x)
+    (if (symbol? x) (hash-ref var->reg x) (i/i x)))
+  (define (i/add-ord dest arg1 arg2)
+    (if (and (number? arg1) (symbol? arg2))
+        (i/add-ord dest arg2 arg1)
+        (i/add dest (var-or-i arg1) (var-or-i arg2))))
+  ;; accumulate in x23
+  (match poly
+    [(? symbol? v)
+     (display (i/add 'x23 'x23 (hash-ref var->reg v)))]
+    [(? number? n)
+     (display (i/add 'x23 'x23 (i/i n)))]
+    [(cons '+ args)
+     (map (λ (a) (emit-poly a var->reg)) args)]
+    [`(^ ,a 2)
+     (display (i/mul 'x11 (var-or-i a) (var-or-i a)))
+     (display (i/add 'x23 'x23 'x11))]
+    [`(* (+ ,a ,b) (+ ,c ,d))
+     (display (i/add-ord 'x24 a b))
+     (display (i/add-ord 'x25 c d))
+     (display (i/mul 'x11 'x24 'x25))
+     (display (i/add 'x23 'x23 'x11))]
+    [`(* (+ ,a ,b) ,c)
+     (display (i/add-ord 'x24 a b))
+     (display (i/mul 'x11 'x24 (var-or-i c)))
+     (display (i/add 'x23 'x23 'x11))]
+    [`(* ,a (+ ,b ,c))
+     (emit-poly `(* (+ ,b ,c) ,a) var->reg)]
+    [(cons '* args)
+     (display (i/mov 'x11 (i/i 1)))
+     (map (λ (a)
+            (match a
+              [(cons '+ args2)
+               (display (i/mov 'x24 'xzr))
+               (map (λ (a2) (display (i/add 'x24 'x24 (var-or-i a2)))) args2)
+               (display (i/mul 'x11 'x11 'x24))]
+              ;; [-1 (display (i/op3 'rsb 'x11 'x11 (i/i 0)))]
+              [(? number? b)
+               (display (i/mov 'x25 (i/i b)))
+               (display (i/mul 'x11 'x11 'x25))]
+              [(? symbol?)
+               (display (i/mul 'x11 'x11 (var-or-i a)))]))
+          args)
+     (display (i/add 'x23 'x23 'x11))]
+    #;[`(* ,a ,b)
+     (display (i/mul 'x11 (var-or-i a) (var-or-i b)))
+     (display (i/add 'x23 'x23 'x11))]))
 
 ;; positive stride:
 ;;
