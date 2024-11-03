@@ -214,7 +214,6 @@
                (display (i/mov 'x24 'xzr))
                (map (λ (a2) (display (i/add 'x24 'x24 (var-or-i a2)))) args2)
                (display (i/mul 'x11 'x11 'x24))]
-              ;; [-1 (display (i/op3 'rsb 'x11 'x11 (i/i 0)))]
               [(? number? b)
                (display (i/mov 'x25 (i/i b)))
                (display (i/mul 'x11 'x11 'x25))]
@@ -421,16 +420,26 @@ finish.str:
 .subsections_via_symbols
 ")
 
+(define opt-level (make-parameter 4))
 
 (define (compile-file filename)
   (displayln "Parsing..." (current-error-port))
   (let-values ([(program _) (parse-prog (parse-file filename))])
-    (eprintf "Parsed. Program is ~a instructions. Optimizing...\n" (tree-size program))
-    (let ([optimized (optimize program)])
+    (eprintf "Parsed. Program is ~a instructions. Optimizing... (-o ~a)\n" (tree-size program) (opt-level))
+    (let ([optimized ((case (opt-level)
+                        [(0) optimize-base]
+                        [(1) optimize-no-12nd-ord]
+                        [(2) optimize-no-2nd-ord]
+                        [(3) optimize-no-basic]
+                        [(4) optimize]) program)])
       (eprintf "Optimized. New program is ~a instructions.\n" (tree-size optimized))
       (compile-to-asm optimized))))
 
-(let* ([the-file (command-line #:program "native.rkt" #:args (filename) filename)])
+(let* ([the-file (command-line
+                  #:program "native.rkt"
+                  #:once-each
+                  [("-o" "--optimize") ol "Optimization level" (opt-level (string->number ol))]
+                  #:args (filename) filename)])
   (compile-file the-file))
 
 #;

@@ -98,6 +98,12 @@
     [(_ (prog) opt-name opt-names ...)
      #'(opt-pass opt-name (opt-chain (prog) opt-names ...))]))
 
+(define (optimize-base prog)
+  (opt-chain (prog)
+             opt/zero-out
+             opt/useless
+             combine-instrs))
+
 (define (optimize prog)
   (opt-chain (prog)
              opt/0-scan
@@ -109,11 +115,30 @@
              opt/useless
              combine-instrs))
 
-(define (optimize-no-loop prog)
+(define (optimize-no-basic prog)
   (opt-chain (prog)
-             ;; opt/0-scan
+             opt/0-scan
+             opt/2nd-order-loop
+             opt/zero-add->set
+             opt/zero-out
+             opt/add
+             opt/useless
+             combine-instrs))
+
+(define (optimize-no-2nd-ord prog)
+  (opt-chain (prog)
+             opt/0-scan
              opt/zero-add->set
              opt/basic-loop
+             opt/zero-out
+             opt/add
+             opt/useless
+             combine-instrs))
+
+(define (optimize-no-12nd-ord prog)
+  (opt-chain (prog)
+             opt/0-scan
+             opt/zero-add->set
              opt/zero-out
              opt/add
              opt/useless
@@ -311,7 +336,7 @@
                               (for/list ([i idxs])
                                 (vector-ref tape (+ i state-range))))))]
                [poly (poly2-func loop-fn vars)])
-          (eprintf "number coeffs: ~a; nice? ~a\n" (set-count touched-idxs) (nice-soln? poly))
+          #;(eprintf "number coeffs: ~a; nice? ~a\n" (set-count touched-idxs) (nice-soln? poly))
           (if (nice-soln? poly)
               (values (make-hash (map cons vars idxs))
                       (for/hash ([(k v) poly]) ; go from var ↦ poly to idx ↦ poly
